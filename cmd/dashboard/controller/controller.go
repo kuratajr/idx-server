@@ -151,6 +151,17 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/online-user", pCommonHandler(listOnlineUser))
 	auth.POST("/online-user/batch-block", adminHandler(batchBlockOnlineUser))
 
+	// Templates (raw text) + per-user ACL (admin managed).
+	auth.GET("/templates", commonHandler(listTemplates))
+	auth.GET("/templates/:id", commonHandler(getTemplate))
+	auth.GET("/templates/:id/raw", commonHandler(getTemplateRaw))
+	auth.POST("/templates", adminHandler(createTemplate))
+	auth.PATCH("/templates/:id", commonHandler(updateTemplate))
+	auth.DELETE("/templates/:id", commonHandler(deleteTemplate))
+	auth.GET("/templates/:id/acl", adminHandler(listTemplateACL))
+	auth.PUT("/templates/:id/acl/:userId", adminHandler(upsertTemplateACL))
+	auth.DELETE("/templates/:id/acl/:userId", adminHandler(deleteTemplateACL))
+
 	auth.PATCH("/setting", adminHandler(updateConfig))
 	auth.POST("/maintenance", adminHandler(runMaintenance))
 
