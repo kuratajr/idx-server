@@ -91,7 +91,8 @@ func InitDBFromPath(path string) error {
 		model.NAT{}, model.DDNSProfile{}, model.NotificationGroupNotification{},
 		model.WAF{}, model.Oauth2Bind{},
 		model.Template{}, model.TemplateACL{},
-		model.NodeConfig{}, model.NodeConfigACL{})
+		model.NodeConfig{}, model.NodeConfigACL{},
+		model.NodeConfigAssignment{})
 	if err != nil {
 		return err
 	}

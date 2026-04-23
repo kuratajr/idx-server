@@ -172,6 +172,16 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.PUT("/configs/:id/acl/:userId", adminHandler(upsertConfigACL))
 	auth.DELETE("/configs/:id/acl/:userId", adminHandler(deleteConfigACL))
 
+	// Assign config to server/group/tag (admin managed).
+	auth.GET("/config-assignments", adminHandler(listConfigAssignments))
+	auth.GET("/config-assignments/effective", adminHandler(effectiveConfigAssignment))
+	auth.POST("/config-assignments", adminHandler(createConfigAssignment))
+	auth.POST("/config-assignments/bulk", adminHandler(createConfigAssignmentsBulk))
+	auth.PATCH("/config-assignments/:id", adminHandler(updateConfigAssignment))
+	auth.DELETE("/config-assignments/:id", adminHandler(deleteConfigAssignment))
+	auth.GET("/config-assignment-batches", adminHandler(listAssignmentBatches))
+	auth.GET("/config-assignment-batches/:batchId", adminHandler(getAssignmentBatch))
+
 	auth.PATCH("/setting", adminHandler(updateConfig))
 	auth.POST("/maintenance", adminHandler(runMaintenance))
 
