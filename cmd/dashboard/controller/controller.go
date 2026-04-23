@@ -162,6 +162,16 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.PUT("/templates/:id/acl/:userId", adminHandler(upsertTemplateACL))
 	auth.DELETE("/templates/:id/acl/:userId", adminHandler(deleteTemplateACL))
 
+	// Configs (bind a template + vars override) + per-user ACL (admin managed).
+	auth.GET("/configs", commonHandler(listConfigs))
+	auth.GET("/configs/:id", commonHandler(getConfig))
+	auth.POST("/configs", adminHandler(createConfig)) // admin-only create
+	auth.PATCH("/configs/:id", commonHandler(updateConfigItem))
+	auth.DELETE("/configs/:id", commonHandler(deleteConfigItem))
+	auth.GET("/configs/:id/acl", adminHandler(listConfigACL))
+	auth.PUT("/configs/:id/acl/:userId", adminHandler(upsertConfigACL))
+	auth.DELETE("/configs/:id/acl/:userId", adminHandler(deleteConfigACL))
+
 	auth.PATCH("/setting", adminHandler(updateConfig))
 	auth.POST("/maintenance", adminHandler(runMaintenance))
 
