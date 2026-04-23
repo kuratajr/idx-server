@@ -18,6 +18,10 @@ type Template struct {
 	// VarsSchema optionally describes variables for UI/validation (JSON).
 	VarsSchema string `gorm:"type:text" json:"vars_schema,omitempty"`
 
+	// DetectedVars is an auto-generated JSON list of variables detected from ContentRaw.
+	// This is intended for "config node" UI to prompt for required variables.
+	DetectedVars string `gorm:"type:text" json:"detected_vars,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

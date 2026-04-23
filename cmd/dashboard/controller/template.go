@@ -16,21 +16,23 @@ import (
 var tmplNameRe = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
 
 type templateMeta struct {
-	ID        uint64 `json:"id"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	VarsSchema string `json:"vars_schema,omitempty"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID           uint64 `json:"id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	VarsSchema   string `json:"vars_schema,omitempty"`
+	DetectedVars string `json:"detected_vars,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
 }
 
 func toTemplateMeta(t *model.Template, includeSchema bool) templateMeta {
 	m := templateMeta{
-		ID:        t.ID,
-		Name:      t.Name,
-		Type:      t.Type,
-		CreatedAt: t.CreatedAt.Unix(),
-		UpdatedAt: t.UpdatedAt.Unix(),
+		ID:           t.ID,
+		Name:         t.Name,
+		Type:         t.Type,
+		DetectedVars: t.DetectedVars,
+		CreatedAt:    t.CreatedAt.Unix(),
+		UpdatedAt:    t.UpdatedAt.Unix(),
 	}
 	if includeSchema {
 		m.VarsSchema = t.VarsSchema
@@ -233,12 +235,17 @@ func createTemplate(c *gin.Context) (*templateMeta, error) {
 		return nil, singleton.Localizer.ErrorT("permission denied")
 	}
 	sf.ContentRaw = strings.ReplaceAll(sf.ContentRaw, "\r\n", "\n")
+	detected, err := detectTemplateVars(sf.ContentRaw)
+	if err != nil {
+		return nil, err
+	}
 
 	t := model.Template{
-		Name:       sf.Name,
-		Type:       sf.Type,
-		ContentRaw: sf.ContentRaw,
-		VarsSchema: sf.VarsSchema,
+		Name:         sf.Name,
+		Type:         sf.Type,
+		ContentRaw:   sf.ContentRaw,
+		VarsSchema:   sf.VarsSchema,
+		DetectedVars: detected,
 	}
 	if err := singleton.DB.Create(&t).Error; err != nil {
 		return nil, newGormError("%v", err)
@@ -278,7 +285,13 @@ func updateTemplate(c *gin.Context) (*templateMeta, error) {
 		updates["type"] = sf.Type
 	}
 	if sf.ContentRaw != "" {
-		updates["content_raw"] = strings.ReplaceAll(sf.ContentRaw, "\r\n", "\n")
+		content := strings.ReplaceAll(sf.ContentRaw, "\r\n", "\n")
+		detected, err := detectTemplateVars(content)
+		if err != nil {
+			return nil, err
+		}
+		updates["content_raw"] = content
+		updates["detected_vars"] = detected
 	}
 	if sf.VarsSchema != "" {
 		updates["vars_schema"] = sf.VarsSchema
