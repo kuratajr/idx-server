@@ -178,6 +178,9 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/raw-config/meta", adminHandler(getRawConfigMeta))
 	auth.PUT("/raw-config", adminHandler(putRawConfig))
 
+	// IDX preview (admin only).
+	auth.GET("/idx/preview-script", adminHandler(previewIDXScript))
+
 	// Assign config to server/group/tag (admin managed).
 	auth.GET("/config-assignments", adminHandler(listConfigAssignments))
 	auth.GET("/config-assignments/effective", adminHandler(effectiveConfigAssignment))

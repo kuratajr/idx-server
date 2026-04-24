@@ -54,6 +54,19 @@ func (a *authHandler) Check(ctx context.Context) (uint64, error) {
 		clientName = normalizeClientName(v[0])
 	}
 
+	// IDX metadata for config assignment matching.
+	isIDX := false
+	if v, ok := md["x-idx"]; ok && len(v) > 0 {
+		switch strings.ToLower(strings.TrimSpace(v[0])) {
+		case "1", "true", "yes", "y", "on":
+			isIDX = true
+		}
+	}
+	workspaceSlug := ""
+	if v, ok := md["x-workspace-slug"]; ok && len(v) > 0 {
+		workspaceSlug = normalizeClientName(v[0])
+	}
+
 	gcpWorkstation := "<missing>"
 	if v, ok := md["gcp_workstation"]; ok && len(v) > 0 {
 		gcpWorkstation = strings.TrimSpace(v[0])
@@ -121,6 +134,14 @@ func (a *authHandler) Check(ctx context.Context) (uint64, error) {
 			server.Name = clientName
 			singleton.ServerShared.Update(server, "")
 		}
+	}
+
+	// Attach runtime IDX metadata to running server object (best-effort).
+	if srv, ok := singleton.ServerShared.Get(clientID); ok && srv != nil {
+		srv.RuntimeIDX = isIDX
+		srv.RuntimeWorkspaceSlug = workspaceSlug
+		// keep in-memory state updated
+		singleton.ServerShared.Update(srv, "")
 	}
 
 	return clientID, nil

@@ -2,11 +2,16 @@ package rpc
 
 import (
 	"context"
+	// boot-script dispatch runs once per boot (boot_time)
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
+	"log"
+	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/jinzhu/copier"
@@ -17,7 +22,31 @@ import (
 	"github.com/nezhahq/nezha/model"
 	pb "github.com/nezhahq/nezha/proto"
 	"github.com/nezhahq/nezha/service/singleton"
+	"gorm.io/gorm/clause"
 )
+
+func idxTemplateFuncMap(vars map[string]any) template.FuncMap {
+	// Minimal helpers to support templates using {{ v "KEY" }} style.
+	return template.FuncMap{
+		"v": func(key string) any {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				return ""
+			}
+			if vars == nil {
+				return ""
+			}
+			if val, ok := vars[key]; ok {
+				return val
+			}
+			// also try uppercase key for convenience
+			if val, ok := vars[strings.ToUpper(key)]; ok {
+				return val
+			}
+			return ""
+		},
+	}
+}
 
 var _ pb.NezhaServiceServer = (*NezhaHandler)(nil)
 
@@ -46,6 +75,8 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 
 	server, _ := singleton.ServerShared.Get(clientID)
 	server.TaskStream = stream
+	// Best-effort: dispatch IDX meta script once per boot after task stream is ready.
+	s.dispatchIDXMetaOnce(server)
 	var result *pb.TaskResult
 	for {
 		result, err = stream.Recv()
@@ -90,6 +121,129 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 				})
 			}
 		}
+	}
+}
+
+func normalizeTag(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ToLower(s)
+	return s
+}
+
+func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
+	if server == nil || server.TaskStream == nil || server.Host == nil {
+		return
+	}
+	bootTime := server.Host.BootTime
+	if bootTime == 0 {
+		return
+	}
+
+	// Only IDX nodes participate.
+	if !server.RuntimeIDX {
+		return
+	}
+	workspaceSlug := normalizeTag(server.RuntimeWorkspaceSlug)
+	if workspaceSlug == "" {
+		return
+	}
+
+	// Resolve effective assignment for this server by (server_id, group_id, tag_name=workspace_slug).
+	var groupIDs []uint64
+	_ = singleton.DB.Model(&model.ServerGroupServer{}).
+		Select("server_group_id").
+		Where("server_id = ?", server.ID).
+		Scan(&groupIDs).Error
+
+	q := singleton.DB.Model(&model.NodeConfigAssignment{}).
+		Where("enabled = ?", true).
+		Where(singleton.DB.Where("target_type = ? AND server_id = ?", model.NodeConfigTargetServer, server.ID).
+			Or("target_type = ? AND tag_name = ?", model.NodeConfigTargetTag, workspaceSlug))
+	if len(groupIDs) > 0 {
+		q = q.Or("target_type = ? AND group_id IN ?", model.NodeConfigTargetGroup, groupIDs)
+	}
+
+	var asg model.NodeConfigAssignment
+	if err := q.Order("priority DESC, updated_at DESC, id DESC").First(&asg).Error; err != nil {
+		return
+	}
+
+	var cfg model.NodeConfig
+	if err := singleton.DB.First(&cfg, asg.ConfigID).Error; err != nil {
+		return
+	}
+	if !cfg.Enabled {
+		return
+	}
+
+	var tplRow model.Template
+	if err := singleton.DB.First(&tplRow, cfg.TemplateID).Error; err != nil {
+		return
+	}
+	// Only render templates intended as scripts.
+	if strings.TrimSpace(strings.ToLower(tplRow.Type)) != "script" {
+		return
+	}
+
+	var vars map[string]any
+	if cfg.VarsOverride != "" {
+		_ = json.Unmarshal([]byte(cfg.VarsOverride), &vars)
+	}
+	if vars == nil {
+		vars = map[string]any{}
+	}
+	// Inject runtime values.
+	vars["WORKSPACE_SLUG"] = workspaceSlug
+	vars["SERVER_ID"] = server.ID
+	vars["BOOT_TIME"] = bootTime
+
+	t, err := template.New("idx-script").
+		Funcs(idxTemplateFuncMap(vars)).
+		Option("missingkey=error").
+		Parse(tplRow.ContentRaw)
+	if err != nil {
+		return
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, vars); err != nil {
+		return
+	}
+	rendered := buf.String()
+	if strings.TrimSpace(rendered) == "" {
+		return
+	}
+	// Wrap for sh compatibility if template didn't specify a shebang.
+	if !strings.HasPrefix(rendered, "#!") {
+		rendered = "#!/bin/sh\nset -eu\n\n" + rendered
+	}
+
+	// Intentionally constant: updating config/template won't retrigger within the same boot.
+	// If you need to rerun without reboot, delete related rows in node_boot_runs.
+	const scriptID = "idx-meta"
+
+	run := model.NodeBootRun{
+		ServerID:      server.ID,
+		BootTime:      bootTime,
+		ScriptID:      scriptID,
+		DispatchedAt:  time.Now(),
+	}
+	// Insert-if-not-exists (unique by server_id+boot_time+script_id).
+	res := singleton.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&run)
+	if res.Error != nil {
+		return
+	}
+	if res.RowsAffected == 0 {
+		// Already dispatched for this boot.
+		return
+	}
+
+	// Dispatch command task. If send fails, delete the record so it can be retried.
+	if err := server.TaskStream.Send(&pb.Task{
+		Id:   0,
+		Type: model.TaskTypeCommand,
+		Data: rendered,
+	}); err != nil {
+		singleton.DB.Where("server_id = ? AND boot_time = ? AND script_id = ?", server.ID, bootTime, scriptID).Delete(&model.NodeBootRun{})
 	}
 }
 

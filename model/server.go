@@ -35,6 +35,10 @@ type Server struct {
 	TaskStream  pb.NezhaService_RequestTaskServer `gorm:"-" json:"-"`
 	ConfigCache chan any                          `gorm:"-" json:"-"`
 
+	// Runtime fields populated from agent gRPC metadata.
+	RuntimeIDX           bool   `gorm:"-" json:"-"`
+	RuntimeWorkspaceSlug string `gorm:"-" json:"-"`
+
 	PrevTransferInSnapshot  uint64 `gorm:"-" json:"-"` // 上次数据点时的入站使用量
 	PrevTransferOutSnapshot uint64 `gorm:"-" json:"-"` // 上次数据点时的出站使用量
 }
