@@ -92,7 +92,8 @@ func InitDBFromPath(path string) error {
 		model.WAF{}, model.Oauth2Bind{},
 		model.Template{}, model.TemplateACL{},
 		model.NodeConfig{}, model.NodeConfigACL{},
-		model.NodeConfigAssignment{})
+		model.NodeConfigAssignment{},
+		model.RawConfig{})
 	if err != nil {
 		return err
 	}

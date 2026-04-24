@@ -71,6 +71,8 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	optionalAuth := api.Group("", optionalAuthMw)
 	optionalAuth.GET("/ws/server", commonHandler(serverStream))
 	optionalAuth.GET("/server-group", commonHandler(listServerGroup))
+	// Raw singleton config for nodes to curl (no auth).
+	optionalAuth.GET("/raw-config", commonHandler(getRawConfig))
 
 	optionalAuth.GET("/service", commonHandler(showService))
 	optionalAuth.GET("/service/server", commonHandler(listServerWithServices))
@@ -171,6 +173,10 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/configs/:id/acl", adminHandler(listConfigACL))
 	auth.PUT("/configs/:id/acl/:userId", adminHandler(upsertConfigACL))
 	auth.DELETE("/configs/:id/acl/:userId", adminHandler(deleteConfigACL))
+
+	// Raw singleton config (admin manage).
+	auth.GET("/raw-config/meta", adminHandler(getRawConfigMeta))
+	auth.PUT("/raw-config", adminHandler(putRawConfig))
 
 	// Assign config to server/group/tag (admin managed).
 	auth.GET("/config-assignments", adminHandler(listConfigAssignments))
