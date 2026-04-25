@@ -18,6 +18,7 @@ import (
 	geoipx "github.com/nezhahq/nezha/pkg/geoip"
 	"github.com/nezhahq/nezha/pkg/grpcx"
 	"github.com/nezhahq/nezha/pkg/tsdb"
+	"github.com/nezhahq/nezha/pkg/utils"
 
 	"github.com/nezhahq/nezha/model"
 	pb "github.com/nezhahq/nezha/proto"
@@ -86,6 +87,21 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 		}
 		switch result.GetType() {
 		case model.TaskTypeCommand:
+			// IDX meta bootstrap result tracking (best-effort).
+			var ev model.IdxMetaEvent
+			if err := singleton.DB.First(&ev, result.GetId()).Error; err == nil && ev.Stage == model.IdxMetaStageDispatched {
+				out := result.GetData()
+				const maxOut = 8192
+				if len(out) > maxOut {
+					out = out[:maxOut]
+				}
+				succ := result.GetSuccessful()
+				_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+					"stage":      model.IdxMetaStageResult,
+					"successful": succ,
+					"message":    out,
+				}).Error
+			}
 			// 处理上报的计划任务
 			cr, _ := singleton.CronShared.Get(result.GetId())
 			if cr != nil {
@@ -132,21 +148,42 @@ func normalizeTag(s string) string {
 
 func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	if server == nil || server.TaskStream == nil || server.Host == nil {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: missing server/taskstream/host (server=nil=%v)", server == nil)
+		}
 		return
 	}
 	bootTime := server.Host.BootTime
 	if bootTime == 0 {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: boot_time=0 server_id=%d", server.ID)
+		}
 		return
 	}
 
 	// Only IDX nodes participate.
 	if !server.RuntimeIDX {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: idx=false server_id=%d name=%q", server.ID, server.Name)
+		}
 		return
 	}
 	workspaceSlug := normalizeTag(server.RuntimeWorkspaceSlug)
 	if workspaceSlug == "" {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: missing workspace_slug server_id=%d name=%q", server.ID, server.Name)
+		}
 		return
 	}
+
+	// Start an event record so we can track whether it ran.
+	ev := model.IdxMetaEvent{
+		ServerID:      server.ID,
+		WorkspaceSlug: workspaceSlug,
+		BootTime:      bootTime,
+		Stage:         model.IdxMetaStageDispatchAttempt,
+	}
+	_ = singleton.DB.Create(&ev).Error
 
 	// Resolve effective assignment for this server by (server_id, group_id, tag_name=workspace_slug).
 	var groupIDs []uint64
@@ -165,23 +202,50 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 
 	var asg model.NodeConfigAssignment
 	if err := q.Order("priority DESC, updated_at DESC, id DESC").First(&asg).Error; err != nil {
+		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+			"stage":   model.IdxMetaStageSendFailed,
+			"message": "no matching assignment",
+		}).Error
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta no assignment server_id=%d slug=%q boot_time=%d groups=%v", server.ID, workspaceSlug, bootTime, groupIDs)
+		}
 		return
+	}
+	if singleton.Conf.Debug {
+		log.Printf("NEZHA>> idx-meta selected assignment id=%d target=%s priority=%d server_id=%d slug=%q boot_time=%d",
+			asg.ID, asg.TargetType, asg.Priority, server.ID, workspaceSlug, bootTime)
 	}
 
 	var cfg model.NodeConfig
 	if err := singleton.DB.First(&cfg, asg.ConfigID).Error; err != nil {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: config load failed config_id=%d err=%v", asg.ConfigID, err)
+		}
 		return
 	}
 	if !cfg.Enabled {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: config disabled config_id=%d", cfg.ID)
+		}
 		return
 	}
 
 	var tplRow model.Template
 	if err := singleton.DB.First(&tplRow, cfg.TemplateID).Error; err != nil {
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: template load failed template_id=%d err=%v", cfg.TemplateID, err)
+		}
 		return
 	}
 	// Only render templates intended as scripts.
 	if strings.TrimSpace(strings.ToLower(tplRow.Type)) != "script" {
+		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+			"stage":   model.IdxMetaStageSendFailed,
+			"message": "template type is not script",
+		}).Error
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: template type=%q (need script) template_id=%d", tplRow.Type, tplRow.ID)
+		}
 		return
 	}
 
@@ -234,16 +298,65 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	}
 	if res.RowsAffected == 0 {
 		// Already dispatched for this boot.
+		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+			"stage":   model.IdxMetaStageResult,
+			"message": "skipped: already dispatched in this boot",
+		}).Error
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta skip: already dispatched server_id=%d boot_time=%d", server.ID, bootTime)
+		}
 		return
 	}
 
-	// Dispatch command task. If send fails, delete the record so it can be retried.
+	// Dispatch a short bootstrap command: curl rendered script (signed) and pipe to sh.
+	// This avoids sending a huge script over gRPC and makes debugging easier.
+	type payload struct {
+		ServerID      uint64 `json:"server_id"`
+		WorkspaceSlug string `json:"workspace_slug"`
+		BootTime      uint64 `json:"boot_time"`
+		ExpiresAtUnix int64  `json:"exp"`
+	}
+	tok, err := utils.MakeSignedToken(singleton.Conf.AgentSecretKey, payload{
+		ServerID:      server.ID,
+		WorkspaceSlug: workspaceSlug,
+		BootTime:      bootTime,
+		ExpiresAtUnix: time.Now().Add(2 * time.Minute).Unix(),
+	})
+	if err != nil {
+		singleton.DB.Where("server_id = ? AND boot_time = ? AND script_id = ?", server.ID, bootTime, scriptID).Delete(&model.NodeBootRun{})
+		return
+	}
+	url := utils.BuildIDXScriptURL(singleton.Conf.InstallHost, singleton.Conf.AgentTLS, tok)
+	cmd := fmt.Sprintf("curl -fsSL %q | sh", url)
+
+	_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+		"stage":        model.IdxMetaStageDispatched,
+		"assignment_id": asg.ID,
+		"target_type":   string(asg.TargetType),
+		"priority":      asg.Priority,
+		"config_id":     asg.ConfigID,
+		"template_id":   tplRow.ID,
+		"message":       cmd,
+	}).Error
+	if singleton.Conf.Debug {
+		log.Printf("NEZHA>> idx-meta dispatched server_id=%d slug=%q boot_time=%d assignment_id=%d config_id=%d template_id=%d",
+			server.ID, workspaceSlug, bootTime, asg.ID, asg.ConfigID, tplRow.ID)
+	}
+
+	// If send fails, delete the record so it can be retried.
 	if err := server.TaskStream.Send(&pb.Task{
-		Id:   0,
+		Id:   ev.ID,
 		Type: model.TaskTypeCommand,
-		Data: rendered,
+		Data: cmd,
 	}); err != nil {
 		singleton.DB.Where("server_id = ? AND boot_time = ? AND script_id = ?", server.ID, bootTime, scriptID).Delete(&model.NodeBootRun{})
+		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
+			"stage":   model.IdxMetaStageSendFailed,
+			"message": fmt.Sprintf("send failed: %v", err),
+		}).Error
+		if singleton.Conf.Debug {
+			log.Printf("NEZHA>> idx-meta send failed server_id=%d err=%v", server.ID, err)
+		}
 	}
 }
 

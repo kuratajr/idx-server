@@ -18,6 +18,7 @@ type idxPreviewQuery struct {
 	WorkspaceSlug string `form:"workspace_slug"`
 	ServerID      uint64 `form:"server_id"`
 	ServerName    string `form:"server_name"`
+	BootTime      uint64 `form:"boot_time"`
 }
 
 func normalizeSlug(s string) string {

@@ -94,7 +94,8 @@ func InitDBFromPath(path string) error {
 		model.NodeConfig{}, model.NodeConfigACL{},
 		model.NodeConfigAssignment{},
 		model.RawConfig{},
-		model.NodeBootRun{})
+		model.NodeBootRun{},
+		model.IdxMetaEvent{})
 	if err != nil {
 		return err
 	}

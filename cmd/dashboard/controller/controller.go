@@ -73,6 +73,8 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	optionalAuth.GET("/server-group", commonHandler(listServerGroup))
 	// Raw singleton config for nodes to curl (no auth).
 	optionalAuth.GET("/raw-config", commonHandler(getRawConfig))
+	// IDX rendered script (token-signed, no auth).
+	optionalAuth.GET("/idx/script", commonHandler(getIDXRenderedScript))
 
 	optionalAuth.GET("/service", commonHandler(showService))
 	optionalAuth.GET("/service/server", commonHandler(listServerWithServices))
@@ -180,6 +182,9 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 
 	// IDX preview (admin only).
 	auth.GET("/idx/preview-script", adminHandler(previewIDXScript))
+	auth.GET("/idx/debug-token", adminHandler(debugIDXToken))
+	auth.GET("/idx/meta-events", adminHandler(listIdxMetaEvents))
+	auth.GET("/idx/meta-events/latest", adminHandler(latestIdxMetaEvent))
 
 	// Assign config to server/group/tag (admin managed).
 	auth.GET("/config-assignments", adminHandler(listConfigAssignments))
