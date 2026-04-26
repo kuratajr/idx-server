@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	jwt "github.com/appleboy/gin-jwt/v2"
 	"github.com/gin-gonic/gin"
@@ -65,7 +66,15 @@ func oauth2redirect(c *gin.Context) (*model.Oauth2LoginResponse, error) {
 		RedirectURL: redirectURL,
 	}, cache.DefaultExpiration)
 
-	url := o2conf.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	authOpts := []oauth2.AuthCodeOption{oauth2.AccessTypeOnline}
+	if strings.EqualFold(provider, "google") {
+		// Google needs offline + consent to reliably issue refresh_token.
+		authOpts = []oauth2.AuthCodeOption{
+			oauth2.AccessTypeOffline,
+			oauth2.SetAuthURLParam("prompt", "consent"),
+		}
+	}
+	url := o2conf.AuthCodeURL(state, authOpts...)
 	// CodeQL go/cookie-secure-not-set: 根据请求协议动态设置 Secure 属性，避免 HTTP 环境下 Cookie 无法使用
 	c.SetCookie("nz-o2s", stateKey, 60*5, "", "", c.Request.URL.Scheme == "https" || c.Request.TLS != nil, false)
 
@@ -140,7 +149,7 @@ func oauth2callback(jwtConfig *jwt.GinJWTMiddleware) func(c *gin.Context) (any, 
 			return nil, singleton.Localizer.ErrorT("code is required")
 		}
 
-		openId, err := exchangeOpenId(c, o2confRaw, callbackData, state.RedirectURL)
+		openId, otk, profileJSON, err := exchangeOpenIdAndToken(c, o2confRaw, callbackData, state.RedirectURL)
 		if err != nil {
 			model.BlockIP(singleton.DB, realip, model.WAFBlockReasonTypeBruteForceOauth2, model.BlockIDToken)
 			return nil, err
@@ -172,10 +181,17 @@ func oauth2callback(jwtConfig *jwt.GinJWTMiddleware) func(c *gin.Context) (any, 
 			if result.Error != nil {
 				return nil, newGormError("%v", result.Error)
 			}
+
+			// Upsert credential + store encrypted tokens (and auto grant "user/use" to binder).
+			if err := upsertOauth2CredentialFromCallback(user.ID, state.Provider, openId, otk, profileJSON); err != nil {
+				return nil, err
+			}
 		default:
 			if err := singleton.DB.Where("provider = ? AND open_id = ?", state.Provider, openId).First(&bind).Error; err != nil {
 				return nil, singleton.Localizer.ErrorT("oauth2 user not binded yet")
 			}
+			// Also upsert on login to keep latest refresh/access tokens.
+			_ = upsertOauth2CredentialFromCallback(bind.UserID, state.Provider, openId, otk, profileJSON)
 		}
 
 		tokenString, _, err := jwtConfig.TokenGenerator(map[string]interface{}{
@@ -193,26 +209,26 @@ func oauth2callback(jwtConfig *jwt.GinJWTMiddleware) func(c *gin.Context) (any, 
 	}
 }
 
-func exchangeOpenId(c *gin.Context, o2confRaw *model.Oauth2Config,
-	callbackData *model.Oauth2Callback, redirectURL string) (string, error) {
+func exchangeOpenIdAndToken(c *gin.Context, o2confRaw *model.Oauth2Config,
+	callbackData *model.Oauth2Callback, redirectURL string) (string, *oauth2.Token, []byte, error) {
 	o2conf := o2confRaw.Setup(redirectURL)
 
 	otk, err := o2conf.Exchange(c, callbackData.Code)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 	oauth2client := o2conf.Client(c, otk)
 	resp, err := oauth2client.Get(o2confRaw.UserInfoURL)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 
-	return gjson.GetBytes(body, o2confRaw.UserIDPath).String(), nil
+	return gjson.GetBytes(body, o2confRaw.UserIDPath).String(), otk, body, nil
 }
 
 func verifyState(c *gin.Context, state string) (*model.Oauth2State, error) {
@@ -234,4 +250,92 @@ func verifyState(c *gin.Context, state string) (*model.Oauth2State, error) {
 	}
 
 	return oauth2State, nil
+}
+
+func upsertOauth2CredentialFromCallback(actorUserID uint64, provider string, externalAccountID string, otk *oauth2.Token, profileJSON []byte) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	externalAccountID = strings.TrimSpace(externalAccountID)
+	if provider == "" || externalAccountID == "" || otk == nil {
+		return nil
+	}
+
+	accessEnc, err := utils.EncryptStringAESGCM(singleton.Conf.Oauth2TokenKeys, otk.AccessToken)
+	if err != nil {
+		return err
+	}
+	refreshEnc, err := utils.EncryptStringAESGCM(singleton.Conf.Oauth2TokenKeys, otk.RefreshToken)
+	if err != nil {
+		return err
+	}
+
+	email := ""
+	name := ""
+	// Best-effort fields; providers differ.
+	if len(profileJSON) > 0 {
+		email = gjson.GetBytes(profileJSON, "email").String()
+		if email == "" {
+			email = gjson.GetBytes(profileJSON, "user.email").String()
+		}
+		name = gjson.GetBytes(profileJSON, "name").String()
+		if name == "" {
+			name = gjson.GetBytes(profileJSON, "login").String()
+		}
+	}
+
+	scopes := ""
+	if otk != nil && otk.Extra("scope") != nil {
+		if s, ok := otk.Extra("scope").(string); ok {
+			scopes = s
+		}
+	}
+
+	var cred model.Oauth2Credential
+	tx := singleton.DB.Where("provider = ? AND external_account_id = ?", provider, externalAccountID).First(&cred)
+	if tx.Error != nil && tx.Error != gorm.ErrRecordNotFound {
+		return newGormError("%v", tx.Error)
+	}
+	if tx.Error == gorm.ErrRecordNotFound {
+		cred.Provider = provider
+		cred.ExternalAccountID = externalAccountID
+		cred.CreatedByUserID = actorUserID
+	}
+
+	cred.Email = email
+	cred.DisplayName = name
+	cred.Scopes = scopes
+	cred.TokenType = otk.TokenType
+	cred.AccessTokenEnc = accessEnc
+	// Refresh token can be empty for some providers / subsequent logins.
+	if refreshEnc != "" {
+		cred.RefreshTokenEnc = refreshEnc
+	}
+	cred.ExpiresAt = otk.Expiry
+	cred.LastRefreshedAt = time.Now()
+
+	if cred.ID == 0 {
+		if err := singleton.DB.Create(&cred).Error; err != nil {
+			return newGormError("%v", err)
+		}
+	} else {
+		if err := singleton.DB.Save(&cred).Error; err != nil {
+			return newGormError("%v", err)
+		}
+	}
+
+	// Auto-grant binder user "use" permission.
+	g := model.Oauth2CredentialGrant{
+		CredentialID:    cred.ID,
+		GranteeType:     model.Oauth2GrantUser,
+		GranteeID:       actorUserID,
+		Perm:            model.Oauth2PermUse,
+		CreatedByUserID: actorUserID,
+	}
+	_ = singleton.DB.FirstOrCreate(&g, model.Oauth2CredentialGrant{
+		CredentialID: cred.ID,
+		GranteeType:  model.Oauth2GrantUser,
+		GranteeID:    actorUserID,
+		Perm:         model.Oauth2PermUse,
+	}).Error
+
+	return nil
 }

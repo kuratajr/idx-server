@@ -90,6 +90,7 @@ func InitDBFromPath(path string) error {
 		model.Cron{}, model.Transfer{}, model.ServerGroupServer{},
 		model.NAT{}, model.DDNSProfile{}, model.NotificationGroupNotification{},
 		model.WAF{}, model.Oauth2Bind{},
+		model.Oauth2Credential{}, model.Oauth2CredentialGrant{}, model.Oauth2CredentialUsageLog{},
 		model.Template{}, model.TemplateACL{},
 		model.NodeConfig{}, model.NodeConfigACL{},
 		model.NodeConfigAssignment{},

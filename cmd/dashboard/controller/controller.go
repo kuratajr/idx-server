@@ -96,6 +96,17 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.POST("/profile", commonHandler(updateProfile))
 	auth.POST("/oauth2/:provider/unbind", commonHandler(unbindOauth2))
 
+	// OAuth2 credential vault (admin managed).
+	auth.GET("/oauth2/credentials", adminHandler(listOauth2Credentials))
+	auth.GET("/oauth2/credentials/:id", adminHandler(getOauth2Credential))
+	auth.POST("/oauth2/credentials/:id/revoke", adminHandler(revokeOauth2Credential))
+	auth.GET("/oauth2/credentials/:id/grants", adminHandler(listOauth2CredentialGrants))
+	auth.POST("/oauth2/credentials/:id/grants", adminHandler(upsertOauth2CredentialGrant))
+	auth.POST("/oauth2/credentials/:id/grants/delete", adminHandler(deleteOauth2CredentialGrant))
+
+	// OAuth2 vault (user view).
+	auth.GET("/oauth2/my-credentials", commonHandler(listMyOauth2Credentials))
+
 	auth.GET("/user", adminHandler(listUser))
 	auth.POST("/user", adminHandler(createUser))
 	auth.POST("/batch-delete/user", adminHandler(batchDeleteUser))

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +68,10 @@ type Config struct {
 
 	// oauth2 配置
 	Oauth2 map[string]*Oauth2Config `koanf:"oauth2" json:"oauth2,omitempty"`
+
+	// oauth2_token_keys is a keyring for encrypting oauth2 access/refresh tokens at rest.
+	// First key is used for encryption; all keys are tried for decryption (supports rotation).
+	Oauth2TokenKeys []string `koanf:"oauth2_token_keys" json:"oauth2_token_keys,omitempty"`
 
 	// HTTPS 配置
 	HTTPS HTTPSConf `koanf:"https" json:"https"`
@@ -180,6 +186,18 @@ func (c *Config) Read(path string, frontendTemplates []FrontendTemplate) error {
 		if err != nil {
 			return err
 		}
+		if err = c.Save(); err != nil {
+			return err
+		}
+	}
+
+	// Initialize oauth2 token keyring if missing.
+	if len(c.Oauth2TokenKeys) == 0 {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return err
+		}
+		c.Oauth2TokenKeys = []string{base64.RawStdEncoding.EncodeToString(key)}
 		if err = c.Save(); err != nil {
 			return err
 		}
