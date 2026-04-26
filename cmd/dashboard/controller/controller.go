@@ -185,6 +185,10 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/idx/debug-token", adminHandler(debugIDXToken))
 	auth.GET("/idx/meta-events", adminHandler(listIdxMetaEvents))
 	auth.GET("/idx/meta-events/latest", adminHandler(latestIdxMetaEvent))
+	auth.GET("/idx/meta-runs", adminHandler(listIdxMetaRuns))
+	auth.GET("/idx/meta-runs/latest", adminHandler(latestIdxMetaRun))
+	auth.GET("/idx/meta-runs/:id", adminHandler(getIdxMetaRun))
+	auth.POST("/idx/meta-runs/clear", adminHandler(clearIdxMetaRuns))
 
 	// Assign config to server/group/tag (admin managed).
 	auth.GET("/config-assignments", adminHandler(listConfigAssignments))

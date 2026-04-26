@@ -17,6 +17,7 @@ import (
 )
 
 type idxScriptTokenPayload struct {
+	RunID         uint64 `json:"run_id"`
 	ServerID       uint64 `json:"server_id"`
 	WorkspaceSlug  string `json:"workspace_slug"`
 	BootTime       uint64 `json:"boot_time"`
@@ -70,6 +71,14 @@ func getIDXRenderedScript(c *gin.Context) (any, error) {
 		Stage:         model.IdxMetaStageScriptFetched,
 		Message:       "ok",
 	}).Error
+
+	// Update run timeline if we have run_id.
+	if p.RunID != 0 {
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", p.RunID).Updates(map[string]any{
+			"status":     model.IdxMetaRunFetched,
+			"fetched_at": time.Now(),
+		}).Error
+	}
 
 	// Resolve effective assignment by (server_id, group_ids, tag_name=workspace_slug).
 	var groupIDs []uint64

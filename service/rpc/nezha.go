@@ -87,6 +87,29 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 		}
 		switch result.GetType() {
 		case model.TaskTypeCommand:
+			// IDX meta run result tracking (best-effort).
+			{
+				var run model.IdxMetaRun
+				if err := singleton.DB.First(&run, result.GetId()).Error; err == nil &&
+					(run.Status == model.IdxMetaRunDispatched || run.Status == model.IdxMetaRunFetched) {
+					out := result.GetData()
+					const maxOut = 32 * 1024
+					if len(out) > maxOut {
+						out = out[:maxOut]
+					}
+					succ := result.GetSuccessful()
+					status := model.IdxMetaRunFailed
+					if succ {
+						status = model.IdxMetaRunSuccess
+					}
+					_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+						"status":      status,
+						"successful":  succ,
+						"output":      out,
+						"finished_at": time.Now(),
+					}).Error
+				}
+			}
 			// IDX meta bootstrap result tracking (best-effort).
 			var ev model.IdxMetaEvent
 			if err := singleton.DB.First(&ev, result.GetId()).Error; err == nil && ev.Stage == model.IdxMetaStageDispatched {
@@ -176,6 +199,16 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 		return
 	}
 
+	// Create a run record for timeline tracking.
+	run := model.IdxMetaRun{
+		ServerID:      server.ID,
+		WorkspaceSlug: workspaceSlug,
+		BootTime:      bootTime,
+		Status:        model.IdxMetaRunDispatched,
+		DispatchedAt:  time.Now(),
+	}
+	_ = singleton.DB.Create(&run).Error
+
 	// Start an event record so we can track whether it ran.
 	ev := model.IdxMetaEvent{
 		ServerID:      server.ID,
@@ -202,6 +235,10 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 
 	var asg model.NodeConfigAssignment
 	if err := q.Order("priority DESC, updated_at DESC, id DESC").First(&asg).Error; err != nil {
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			"status": model.IdxMetaRunSkipped,
+			"error":  "no matching assignment",
+		}).Error
 		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
 			"stage":   model.IdxMetaStageSendFailed,
 			"message": "no matching assignment",
@@ -239,6 +276,10 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	}
 	// Only render templates intended as scripts.
 	if strings.TrimSpace(strings.ToLower(tplRow.Type)) != "script" {
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			"status": model.IdxMetaRunSkipped,
+			"error":  "template type is not script",
+		}).Error
 		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
 			"stage":   model.IdxMetaStageSendFailed,
 			"message": "template type is not script",
@@ -285,19 +326,23 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	// If you need to rerun without reboot, delete related rows in node_boot_runs.
 	const scriptID = "idx-meta"
 
-	run := model.NodeBootRun{
+	bootRun := model.NodeBootRun{
 		ServerID:      server.ID,
 		BootTime:      bootTime,
 		ScriptID:      scriptID,
 		DispatchedAt:  time.Now(),
 	}
 	// Insert-if-not-exists (unique by server_id+boot_time+script_id).
-	res := singleton.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&run)
+	res := singleton.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&bootRun)
 	if res.Error != nil {
 		return
 	}
 	if res.RowsAffected == 0 {
 		// Already dispatched for this boot.
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			"status": model.IdxMetaRunSkipped,
+			"error":  "already dispatched in this boot",
+		}).Error
 		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
 			"stage":   model.IdxMetaStageResult,
 			"message": "skipped: already dispatched in this boot",
@@ -311,12 +356,14 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	// Dispatch a short bootstrap command: curl rendered script (signed) and pipe to sh.
 	// This avoids sending a huge script over gRPC and makes debugging easier.
 	type payload struct {
+		RunID         uint64 `json:"run_id"`
 		ServerID      uint64 `json:"server_id"`
 		WorkspaceSlug string `json:"workspace_slug"`
 		BootTime      uint64 `json:"boot_time"`
 		ExpiresAtUnix int64  `json:"exp"`
 	}
 	tok, err := utils.MakeSignedToken(singleton.Conf.AgentSecretKey, payload{
+		RunID:         run.ID,
 		ServerID:      server.ID,
 		WorkspaceSlug: workspaceSlug,
 		BootTime:      bootTime,
@@ -324,10 +371,26 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 	})
 	if err != nil {
 		singleton.DB.Where("server_id = ? AND boot_time = ? AND script_id = ?", server.ID, bootTime, scriptID).Delete(&model.NodeBootRun{})
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			"status": model.IdxMetaRunFailed,
+			"error":  "token build failed",
+		}).Error
 		return
 	}
 	url := utils.BuildIDXScriptURL(singleton.Conf.InstallHost, singleton.Conf.AgentTLS, tok)
 	cmd := fmt.Sprintf("curl -fsSL %q | sh", url)
+	if len(cmd) > 2048 {
+		cmd = cmd[:2048]
+	}
+
+	_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+		"assignment_id": asg.ID,
+		"target_type":   string(asg.TargetType),
+		"priority":      asg.Priority,
+		"config_id":     asg.ConfigID,
+		"template_id":   tplRow.ID,
+		"command":       cmd,
+	}).Error
 
 	_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
 		"stage":        model.IdxMetaStageDispatched,
@@ -345,11 +408,15 @@ func (s *NezhaHandler) dispatchIDXMetaOnce(server *model.Server) {
 
 	// If send fails, delete the record so it can be retried.
 	if err := server.TaskStream.Send(&pb.Task{
-		Id:   ev.ID,
+		Id:   run.ID,
 		Type: model.TaskTypeCommand,
 		Data: cmd,
 	}); err != nil {
 		singleton.DB.Where("server_id = ? AND boot_time = ? AND script_id = ?", server.ID, bootTime, scriptID).Delete(&model.NodeBootRun{})
+		_ = singleton.DB.Model(&model.IdxMetaRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			"status": model.IdxMetaRunFailed,
+			"error":  fmt.Sprintf("send failed: %v", err),
+		}).Error
 		_ = singleton.DB.Model(&model.IdxMetaEvent{}).Where("id = ?", ev.ID).Updates(map[string]any{
 			"stage":   model.IdxMetaStageSendFailed,
 			"message": fmt.Sprintf("send failed: %v", err),
