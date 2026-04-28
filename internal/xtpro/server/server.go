@@ -185,6 +185,46 @@ func (s *server) stop(ctx context.Context) error {
 	return nil
 }
 
+func (s *server) dashboardSnapshot() DashboardSnapshot {
+	now := time.Now()
+	s.clientsMu.RLock()
+	tunnels := make([]TunnelView, 0, len(s.clients))
+	for _, session := range s.clients {
+		tunnels = append(tunnels, TunnelView{
+			ClientID:          session.clientID,
+			Key:               session.key,
+			Target:            session.target,
+			Protocol:          session.protocol,
+			PublicHost:        s.publicHost,
+			PublicPort:        session.publicPort,
+			RemoteIP:          session.remoteIP,
+			LastSeen:          session.lastSeen,
+			BytesUp:           atomic.LoadUint64(&session.bytesUp),
+			BytesDown:         atomic.LoadUint64(&session.bytesDown),
+			ActiveConnections: atomic.LoadInt64(&session.activeProxyConnections),
+		})
+	}
+	s.clientsMu.RUnlock()
+
+	sort.Slice(tunnels, func(i, j int) bool {
+		if tunnels[i].LastSeen.Equal(tunnels[j].LastSeen) {
+			return tunnels[i].ClientID < tunnels[j].ClientID
+		}
+		return tunnels[i].LastSeen.After(tunnels[j].LastSeen)
+	})
+
+	return DashboardSnapshot{
+		ActiveTunnels:    len(tunnels),
+		ActiveUsers:      len(tunnels),
+		TotalConnections: atomic.LoadUint64(&s.totalConnections),
+		TotalBytesUp:     atomic.LoadUint64(&s.totalBytesUp),
+		TotalBytesDown:   atomic.LoadUint64(&s.totalBytesDown),
+		UptimeSeconds:    now.Sub(s.runtimeStart).Seconds(),
+		Uptime:           now.Sub(s.runtimeStart).String(),
+		Tunnels:          tunnels,
+	}
+}
+
 func (s *server) handleConnection(conn net.Conn) {
 	br := bufio.NewReader(conn)
 	if _, err := br.Peek(1); err != nil {
@@ -581,4 +621,3 @@ func generateSelfSignedCert(certFile, keyFile string) error {
 	log.Printf("[xtpro] generated self-signed certificate: %s, %s", certFile, keyFile)
 	return nil
 }
-

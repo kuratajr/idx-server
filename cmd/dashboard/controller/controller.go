@@ -203,6 +203,11 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.GET("/idx/meta-runs/:id", adminHandler(getIdxMetaRun))
 	auth.POST("/idx/meta-runs/clear", adminHandler(clearIdxMetaRuns))
 
+	auth.GET("/xtpro/overview", adminHandler(getXTProOverview))
+	auth.GET("/xtpro/tunnels", adminHandler(listXTProTunnels))
+	auth.GET("/xtpro/users", adminHandler(listXTProUsers))
+	auth.DELETE("/xtpro/tunnels/:id", adminHandler(deleteXTProTunnel))
+
 	// Assign config to server/group/tag (admin managed).
 	auth.GET("/config-assignments", adminHandler(listConfigAssignments))
 	auth.GET("/config-assignments/effective", adminHandler(effectiveConfigAssignment))

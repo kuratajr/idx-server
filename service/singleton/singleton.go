@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"sigs.k8s.io/yaml"
 
+	xtproserver "github.com/nezhahq/nezha/internal/xtpro/server"
 	"github.com/nezhahq/nezha/model"
 	"github.com/nezhahq/nezha/pkg/utils"
 )
@@ -34,6 +35,7 @@ var (
 	NotificationShared    *NotificationClass
 	NATShared             *NATClass
 	CronShared            *CronClass
+	XTProShared           *xtproserver.Service
 )
 
 //go:embed frontend-templates.yaml

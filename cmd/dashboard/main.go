@@ -141,6 +141,7 @@ func main() {
 			log.Fatalf("NEZHA>> XTPRO::START ERROR: %v", err)
 		}
 		xtproSvc = svc
+		singleton.XTProShared = svc
 		log.Printf("NEZHA>> XTPRO::ENABLED ON :%d (tunnel :%d)", singleton.Conf.XTPRO.ListenPort, singleton.Conf.XTPRO.ListenPort+1)
 	}
 
