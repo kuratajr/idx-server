@@ -29,6 +29,17 @@ type ServerForm struct {
 	EnableDDNS          bool                `json:"enable_ddns,omitempty" validate:"optional"`    // 启用DDNS
 	DDNSProfiles        []uint64            `json:"ddns_profiles,omitempty" validate:"optional"`  // DDNS配置
 	OverrideDDNSDomains map[uint64][]string `json:"override_ddns_domains,omitempty" validate:"optional"`
+	// oauth2_gg_id: mapping this server to a Google OAuth2 credential id (model.Oauth2Credential.ID).
+	// - omit: keep existing
+	// - 0: clear mapping
+	// - >0: set mapping (must be provider=google and actor has "use" grant unless admin)
+	Oauth2GGID *uint64 `json:"oauth2_gg_id,omitempty" validate:"optional"`
+	// oauth2_gg_ids: multiple Google OAuth2 credential ids mapped to this server.
+	// - omit: keep existing list
+	// - []: clear all mappings
+	// - [id...]: replace mappings (each must be provider=google and actor has "use" grant unless admin)
+	// Note: oauth2_gg_id is treated as the "default" account and will be set to the first id in this list.
+	Oauth2GGIDs []uint64 `json:"oauth2_gg_ids,omitempty" validate:"optional"`
 }
 
 type ServerConfigForm struct {

@@ -21,6 +21,15 @@ type Server struct {
 	DisplayIndex           int    `json:"display_index"`            // 展示排序，越大越靠前
 	HideForGuest           bool   `json:"hide_for_guest,omitempty"` // 对游客隐藏
 	EnableDDNS             bool   `json:"enable_ddns,omitempty"`    // 启用DDNS
+	// Nullable fields for GCP integrations.
+	TokenGCP       *string `json:"token_gcp,omitempty" gorm:"column:token_gcp"`
+	WorkstationGCP *string `json:"workstation_gcp,omitempty" gorm:"column:workstation_gcp"`
+	// oauth2_gg_id maps this server to a Google OAuth2 credential (model.Oauth2Credential.ID).
+	// Nullable: nil means "not configured".
+	Oauth2GGID *uint64 `json:"oauth2_gg_id,omitempty" gorm:"column:oauth2_gg_id;index"`
+	// oauth2_gg_ids is a derived field (join table) listing all google credentials mapped to this server.
+	// It is populated by the API layer when listing servers.
+	Oauth2GGIDs []uint64 `gorm:"-" json:"oauth2_gg_ids,omitempty"`
 	DDNSProfilesRaw        string `gorm:"default:'[]';column:ddns_profiles_raw" json:"-"`
 	OverrideDDNSDomainsRaw string `gorm:"default:'{}';column:override_ddns_domains_raw" json:"-"`
 

@@ -127,6 +127,8 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 
 	auth.GET("/server", listHandler(listServer))
 	auth.PATCH("/server/:id", commonHandler(updateServer))
+	// Generate a short-lived GCP access token for a server's mapped Google credential.
+	auth.POST("/server/:id/gcp/access-token", commonHandler(generateServerGCPAccessToken))
 	auth.GET("/server/config/:id", commonHandler(getServerConfig))
 	auth.POST("/server/config", commonHandler(setServerConfig))
 	auth.POST("/batch-delete/server", commonHandler(batchDeleteServer))

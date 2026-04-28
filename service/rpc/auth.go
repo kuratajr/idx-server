@@ -140,6 +140,17 @@ func (a *authHandler) Check(ctx context.Context) (uint64, error) {
 	if srv, ok := singleton.ServerShared.Get(clientID); ok && srv != nil {
 		srv.RuntimeIDX = isIDX
 		srv.RuntimeWorkspaceSlug = workspaceSlug
+
+		// Persist GCP workstation into DB and cache it on the running server.
+		// gcpWorkstation is from incoming gRPC metadata key "gcp_workstation".
+		if ws := strings.TrimSpace(gcpWorkstation); ws != "" && ws != "<missing>" {
+			// Best-effort DB update; keep auth path resilient.
+			_ = singleton.DB.Model(&model.Server{}).
+				Where("id = ?", clientID).
+				Update("workstation_gcp", ws).Error
+			srv.WorkstationGCP = &ws
+		}
+
 		// keep in-memory state updated
 		singleton.ServerShared.Update(srv, "")
 	}

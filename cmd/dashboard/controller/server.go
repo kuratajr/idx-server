@@ -13,6 +13,7 @@ import (
 
 	"github.com/nezhahq/nezha/model"
 	"github.com/nezhahq/nezha/pkg/tsdb"
+	"github.com/nezhahq/nezha/service/oauth2vault"
 	pb "github.com/nezhahq/nezha/proto"
 	"github.com/nezhahq/nezha/service/singleton"
 )
@@ -33,6 +34,53 @@ func listServer(c *gin.Context) ([]*model.Server, error) {
 	var ssl []*model.Server
 	if err := copier.Copy(&ssl, &slist); err != nil {
 		return nil, err
+	}
+
+	// Populate oauth2_gg_ids from join table for client visibility.
+	ids := make([]uint64, 0, len(ssl))
+	for _, s := range ssl {
+		if s == nil {
+			continue
+		}
+		ids = append(ids, s.ID)
+	}
+	if len(ids) > 0 {
+		type row struct {
+			ServerID     uint64
+			CredentialID uint64
+		}
+		var rows []row
+		if err := singleton.DB.Model(&model.ServerOauth2Credential{}).
+			Select("server_id, credential_id").
+			Where("provider = ? AND server_id IN ?", "google", ids).
+			Find(&rows).Error; err != nil {
+			return nil, newGormError("%v", err)
+		}
+
+		m := make(map[uint64][]uint64, len(ids))
+		for _, r := range rows {
+			m[r.ServerID] = append(m[r.ServerID], r.CredentialID)
+		}
+
+		for _, s := range ssl {
+			if s == nil {
+				continue
+			}
+			list := m[s.ID]
+			if len(list) == 0 {
+				continue
+			}
+			// Sort for stable output, and put default first if present.
+			slices.Sort(list)
+			slices.Reverse(list)
+			if s.Oauth2GGID != nil && *s.Oauth2GGID != 0 {
+				def := *s.Oauth2GGID
+				if i := slices.Index(list, def); i != -1 {
+					list = slices.Concat([]uint64{def}, slices.Delete(slices.Clone(list), i, i+1))
+				}
+			}
+			s.Oauth2GGIDs = list
+		}
 	}
 	return ssl, nil
 }
@@ -81,6 +129,118 @@ func updateServer(c *gin.Context) (any, error) {
 	s.EnableDDNS = sf.EnableDDNS
 	s.DDNSProfiles = sf.DDNSProfiles
 	s.OverrideDDNSDomains = sf.OverrideDDNSDomains
+
+	actor := c.MustGet(model.CtxKeyAuthorizedUser).(*model.User)
+	prevDefaultGGID := s.Oauth2GGID
+
+	// Optional: map server to multiple Google OAuth2 credential IDs.
+	// If provided, it replaces the existing mapping list.
+	if sf.Oauth2GGIDs != nil {
+		// Validate each credential id.
+		validIDs := make([]uint64, 0, len(sf.Oauth2GGIDs))
+		for _, credID := range sf.Oauth2GGIDs {
+			if credID == 0 {
+				continue
+			}
+			var cred model.Oauth2Credential
+			if err := singleton.DB.First(&cred, credID).Error; err != nil {
+				return nil, newGormError("%v", err)
+			}
+			if cred.Revoked || cred.Provider != "google" {
+				return nil, singleton.Localizer.ErrorT("permission denied")
+			}
+			if _, err := oauth2vault.GetToken(c, actor, credID); err != nil {
+				if err == oauth2vault.ErrPermissionDenied {
+					return nil, singleton.Localizer.ErrorT("permission denied")
+				}
+				return nil, err
+			}
+			validIDs = append(validIDs, credID)
+		}
+
+		// Replace mappings in DB.
+		if err := singleton.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("server_id = ? AND provider = ?", s.ID, "google").
+				Delete(&model.ServerOauth2Credential{}).Error; err != nil {
+				return err
+			}
+			if len(validIDs) == 0 {
+				return nil
+			}
+			rows := make([]model.ServerOauth2Credential, 0, len(validIDs))
+			for _, id := range validIDs {
+				rows = append(rows, model.ServerOauth2Credential{
+					ServerID:     s.ID,
+					CredentialID: id,
+					Provider:     "google",
+				})
+			}
+			return tx.Create(&rows).Error
+		}); err != nil {
+			return nil, newGormError("%v", err)
+		}
+
+		// Keep legacy/default field in sync: first id becomes default.
+		if len(validIDs) > 0 {
+			first := validIDs[0]
+			s.Oauth2GGID = &first
+		} else {
+			s.Oauth2GGID = nil
+		}
+	}
+
+	// Optional: map server to a Google OAuth2 credential ID.
+	// - omit: keep current
+	// - 0: clear
+	// - >0: validate (provider=google + permission)
+	if sf.Oauth2GGID != nil {
+		if *sf.Oauth2GGID == 0 {
+			s.Oauth2GGID = nil
+		} else {
+			credID := *sf.Oauth2GGID
+
+			var cred model.Oauth2Credential
+			if err := singleton.DB.First(&cred, credID).Error; err != nil {
+				return nil, newGormError("%v", err)
+			}
+			if cred.Revoked {
+				return nil, singleton.Localizer.ErrorT("permission denied")
+			}
+			if cred.Provider != "google" {
+				return nil, singleton.Localizer.ErrorT("permission denied")
+			}
+
+			// Enforce "use" permission (admin bypass) by attempting token retrieval (refresh is best-effort).
+			if _, err := oauth2vault.GetToken(c, actor, credID); err != nil {
+				if err == oauth2vault.ErrPermissionDenied {
+					return nil, singleton.Localizer.ErrorT("permission denied")
+				}
+				return nil, err
+			}
+			s.Oauth2GGID = &credID
+
+			// Ensure it exists in the join table.
+			_ = singleton.DB.FirstOrCreate(&model.ServerOauth2Credential{}, model.ServerOauth2Credential{
+				ServerID:     s.ID,
+				CredentialID: credID,
+				Provider:     "google",
+			}).Error
+
+			// If there was a previous default, keep it in the list too (so patching oauth2_gg_id=3
+			// after having oauth2_gg_id=2 results in a list [3,2] rather than just [3]).
+			if prevDefaultGGID != nil && *prevDefaultGGID != 0 && *prevDefaultGGID != credID {
+				var oldCred model.Oauth2Credential
+				if err := singleton.DB.First(&oldCred, *prevDefaultGGID).Error; err == nil &&
+					!oldCred.Revoked && oldCred.Provider == "google" {
+					_ = singleton.DB.FirstOrCreate(&model.ServerOauth2Credential{}, model.ServerOauth2Credential{
+						ServerID:     s.ID,
+						CredentialID: *prevDefaultGGID,
+						Provider:     "google",
+					}).Error
+				}
+			}
+		}
+	}
 
 	ddnsProfilesRaw, err := json.Marshal(s.DDNSProfiles)
 	if err != nil {
