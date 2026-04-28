@@ -50,6 +50,26 @@ type ConfigDashboard struct {
 	DNSServers string `koanf:"dns_servers" json:"dns_servers,omitempty"`
 }
 
+type XTPROConf struct {
+	Enabled    bool   `koanf:"enabled" json:"enabled,omitempty"`
+	ListenPort uint16 `koanf:"listen_port" json:"listen_port,omitempty"` // Dashboard/API port (tunnel port = listen_port + 1)
+	HTTPPrefix string `koanf:"http_prefix" json:"http_prefix,omitempty"` // mount path on Nezha HTTP server (e.g. /xtpro)
+
+	// Optional public host used by xtpro dashboard to render public endpoints.
+	PublicHost string `koanf:"public_host" json:"public_host,omitempty"`
+
+	// HTTP tunneling (HTTPS wildcard) support.
+	HTTPDomain string `koanf:"http_domain" json:"http_domain,omitempty"`
+	HTTPPort   uint16 `koanf:"http_port" json:"http_port,omitempty"` // usually 443; 0 disables
+
+	// SQLite path for xtpro (empty => ./xtpro.db in CWD).
+	DBPath string `koanf:"db_path" json:"db_path,omitempty"`
+
+	// JWT config for xtpro API.
+	JWTSecretKey string `koanf:"jwt_secret_key" json:"jwt_secret_key,omitempty"`
+	JWTTimeout   int    `koanf:"jwt_timeout" json:"jwt_timeout,omitempty"` // hours
+}
+
 type Config struct {
 	ConfigForGuests
 	ConfigDashboard
@@ -81,6 +101,9 @@ type Config struct {
 
 	// 内存配置
 	Memory MemoryConf `koanf:"memory" json:"memory"`
+
+	// XTPRO tunnel server (optional, runs inside the same binary)
+	XTPRO XTPROConf `koanf:"xtpro" json:"xtpro"`
 
 	k        *koanf.Koanf `json:"-"`
 	filePath string       `json:"-"`
@@ -189,6 +212,10 @@ func (c *Config) Read(path string, frontendTemplates []FrontendTemplate) error {
 		if err = c.Save(); err != nil {
 			return err
 		}
+	}
+
+	if c.XTPRO.HTTPPrefix == "" {
+		c.XTPRO.HTTPPrefix = "/xtpro"
 	}
 
 	// Initialize oauth2 token keyring if missing.

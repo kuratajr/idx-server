@@ -23,6 +23,7 @@ import (
 	"github.com/nezhahq/nezha/cmd/dashboard/controller"
 	"github.com/nezhahq/nezha/cmd/dashboard/controller/waf"
 	"github.com/nezhahq/nezha/cmd/dashboard/rpc"
+	xtproserver "github.com/nezhahq/nezha/internal/xtpro/server"
 	"github.com/nezhahq/nezha/model"
 	"github.com/nezhahq/nezha/pkg/utils"
 	"github.com/nezhahq/nezha/proto"
@@ -127,6 +128,22 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var xtproSvc *xtproserver.Service
+	if singleton.Conf.XTPRO.Enabled {
+		svc, err := xtproserver.Start(context.Background(), xtproserver.Options{
+			ListenPort: singleton.Conf.XTPRO.ListenPort,
+			PublicHost: singleton.Conf.XTPRO.PublicHost,
+			DBPath:     singleton.Conf.XTPRO.DBPath,
+			JWTSecret:  singleton.Conf.XTPRO.JWTSecretKey,
+			JWTHours:   singleton.Conf.XTPRO.JWTTimeout,
+		})
+		if err != nil {
+			log.Fatalf("NEZHA>> XTPRO::START ERROR: %v", err)
+		}
+		xtproSvc = svc
+		log.Printf("NEZHA>> XTPRO::ENABLED ON :%d (tunnel :%d)", singleton.Conf.XTPRO.ListenPort, singleton.Conf.XTPRO.ListenPort+1)
+	}
+
 	l, err := net.Listen("tcp", fmt.Sprintf("%s:%d", singleton.Conf.ListenHost, singleton.Conf.ListenPort))
 	if err != nil {
 		log.Fatal(err)
@@ -142,6 +159,11 @@ func main() {
 	controller.InitUpgrader()
 
 	muxHandler := newHTTPandGRPCMux(httpHandler, grpcHandler)
+	if xtproSvc != nil && singleton.Conf.XTPRO.HTTPPrefix != "" {
+		prefix := singleton.Conf.XTPRO.HTTPPrefix
+		xtHandler := xtproSvc.Handler()
+		muxHandler = mountPrefix(muxHandler, prefix, xtHandler)
+	}
 	muxServerHTTP := &http.Server{
 		Handler:           muxHandler,
 		ReadHeaderTimeout: time.Second * 5,
@@ -179,6 +201,9 @@ func main() {
 		return <-errChan
 	}, func(c context.Context) error {
 		log.Println("NEZHA>> Graceful::START")
+		if xtproSvc != nil {
+			_ = xtproSvc.Stop(c)
+		}
 		singleton.RecordTransferHourlyUsage()
 		singleton.CloseTSDB()
 		log.Println("NEZHA>> Graceful::END")
@@ -196,6 +221,28 @@ func main() {
 	}
 
 	close(errChan)
+}
+
+func mountPrefix(base http.Handler, prefix string, h http.Handler) http.Handler {
+	if h == nil || prefix == "" || prefix == "/" {
+		return base
+	}
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+	prefix = strings.TrimRight(prefix, "/")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == prefix || r.URL.Path == prefix+"/" {
+			http.Redirect(w, r, prefix+"/dashboard/", http.StatusFound)
+			return
+		}
+		if r.URL.Path == prefix || strings.HasPrefix(r.URL.Path, prefix+"/") {
+			// Make xtpro feel "rooted" at prefix.
+			http.StripPrefix(prefix, h).ServeHTTP(w, r)
+			return
+		}
+		base.ServeHTTP(w, r)
+	})
 }
 
 func newHTTPandGRPCMux(httpHandler http.Handler, grpcHandler http.Handler) http.Handler {

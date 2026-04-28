@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1120">
+    <title data-i18n="mobile.title">XTPro Mobile Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body data-theme="dark">
+    <header class="app-header" id="appHeader">
+        <div class="brand">
+            <span class="brand-icon" aria-hidden="true">🛰️</span>
+            <div class="brand-copy">
+                <h1 class="brand-title" data-i18n="mobile.heading">XTPro Mobile</h1>
+                <p class="brand-subtitle" data-i18n="mobile.subtitle">Theo dõi tunnels mọi lúc, mọi nơi</p>
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <button class="ghost-btn" id="langToggle" type="button" data-i18n-attr="aria-label:common.lang.label">EN</button>
+            <button class="ghost-btn" id="themeToggle" type="button" data-i18n-attr="aria-label:mobile.themeToggleAria" aria-label="Chuyển giao diện">
+                <span class="ghost-btn-icon" aria-hidden="true">🌙</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <section class="connection-card" role="status" aria-live="polite">
+            <div class="connection-pill" id="connectionStatus">
+                <span class="connection-indicator"></span>
+                <div>
+                    <p class="connection-label" data-i18n="mobile.statusLabel">Trạng thái</p>
+                    <p class="connection-value">Đang kết nối...</p>
+                </div>
+            </div>
+            <button class="primary-btn" id="manualRefresh" type="button" data-i18n="common.actions.refresh">Làm mới</button>
+        </section>
+
+        <section class="stats-grid" data-i18n-attr="aria-label:mobile.statsHeading" aria-label="Thống kê nhanh">
+            <article class="stat-card" data-accent="green">
+                <p class="stat-label" data-i18n="mobile.activeTunnels">Tunnel hoạt động</p>
+                <p class="stat-value" id="statActiveTunnels">0</p>
+                <span class="stat-meta" data-i18n="mobile.metaRealtime">Realtime</span>
+            </article>
+            <article class="stat-card" data-accent="indigo">
+                <p class="stat-label" data-i18n="mobile.totalConnections">Tổng kết nối</p>
+                <p class="stat-value" id="statTotalConnections">0</p>
+                <span class="stat-meta" data-i18n="mobile.metaAllTime">All time</span>
+            </article>
+            <article class="stat-card" data-accent="cyan">
+                <p class="stat-label" data-i18n="mobile.labelUpload">Upload</p>
+                <p class="stat-value" id="statTotalUpload">0 B</p>
+                <span class="stat-meta" data-i18n="mobile.metaLifetime">Lifetime</span>
+            </article>
+            <article class="stat-card" data-accent="purple">
+                <p class="stat-label" data-i18n="mobile.labelDownload">Download</p>
+                <p class="stat-value" id="statTotalDownload">0 B</p>
+                <span class="stat-meta" data-i18n="mobile.metaLifetime">Lifetime</span>
+            </article>
+        </section>
+
+        <section class="list-panel" aria-labelledby="tunnelsHeading">
+            <div class="panel-header">
+                <h2 class="panel-title" id="tunnelsHeading" data-i18n="mobile.tunnelsRunning">Tunnels đang chạy</h2>
+                <span class="panel-meta" id="lastUpdated" data-i18n="mobile.loading">Đang tải...</span>
+            </div>
+            <div id="tunnelsList" class="tunnels-list" aria-live="polite">
+                <div class="skeleton-list">
+                    <div class="skeleton-item"></div>
+                    <div class="skeleton-item"></div>
+                </div>
+            </div>
+            <div id="emptyState" class="empty-state" hidden>
+                <span class="empty-icon" aria-hidden="true">🔌</span>
+                <p data-i18n="mobile.empty">Chưa có tunnel nào hoạt động.</p>
+                <code class="inline-code">xtpro --proto http 3000</code>
+            </div>
+        </section>
+
+        <section class="quick-actions" aria-labelledby="quickActionsHeading">
+            <h2 class="panel-title" id="quickActionsHeading" data-i18n="mobile.quickActionsTitle">Hành động nhanh</h2>
+            <div class="action-grid">
+                <button class="action-card" data-action="http">
+                    <span class="action-icon" aria-hidden="true">🌐</span>
+                    <span class="action-title" data-i18n="mobile.actionHttpTitle">HTTP Tunnel</span>
+                    <span class="action-subtitle">xtpro --proto http 3000</span>
+                </button>
+                <button class="action-card" data-action="tcp">
+                    <span class="action-icon" aria-hidden="true">🛡️</span>
+                    <span class="action-title" data-i18n="mobile.actionTcpTitle">SSH bảo mật</span>
+                    <span class="action-subtitle">xtpro --proto tcp 22</span>
+                </button>
+                <button class="action-card" data-action="udp">
+                    <span class="action-icon" aria-hidden="true">🎮</span>
+                    <span class="action-title" data-i18n="mobile.actionUdpTitle">Game UDP</span>
+                    <span class="action-subtitle">xtpro --proto udp 19132</span>
+                </button>
+                <button class="action-card" data-action="share">
+                    <span class="action-icon" aria-hidden="true">📁</span>
+                    <span class="action-title" data-i18n="mobile.actionShareTitle">Chia sẻ file</span>
+                    <span class="action-subtitle">xtpro --file ~/Docs --pass secure</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p data-i18n="mobile.footerCopyright">© 2026 XTPro • Mobile Control</p>
+        <nav class="footer-links" data-i18n-attr="aria-label:mobile.footerNavAria" aria-label="Liên kết hỗ trợ">
+            <a class="footer-link" href="../index.html" data-i18n="mobile.footerDashboard">Dashboard</a>
+            <a class="footer-link" href="../landing/index.html" data-i18n="mobile.footerLanding">Landing</a>
+            <a class="footer-link" href="mailto:thoainx01@gmail.com" data-i18n="mobile.footerEmail">Email</a>
+        </nav>
+    </footer>
+
+    <dialog id="actionDialog" class="action-dialog">
+        <div class="dialog-content">
+            <header class="dialog-header">
+                <h2 id="dialogTitle" data-i18n="mobile.dialogTitle">Lệnh mẫu</h2>
+                <button class="dialog-close" type="button" id="dialogClose" data-i18n-attr="aria-label:common.actions.close" aria-label="Đóng">✕</button>
+            </header>
+            <p id="dialogDescription" class="dialog-description" data-i18n="mobile.dialogDescription">Sao chép lệnh và chạy trên client của bạn.</p>
+            <pre class="dialog-code" id="dialogCode" tabindex="0"></pre>
+            <div class="dialog-actions">
+                <button class="ghost-btn" id="copyAction" type="button" data-i18n="common.copy.button">Copy</button>
+            </div>
+        </div>
+    </dialog>
+
+    <div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
+
+    <script src="../assets/js/i18n.js" defer></script>
+    <script src="app.js" type="module"></script>
+</body>
+
+</html>

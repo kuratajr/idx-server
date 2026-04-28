@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" data-i18n-attr="content:login.metaDesc" content="Đăng nhập quản trị XTPro — bảo mật JWT, quản lý tunnel và người dùng.">
+    <title data-i18n="login.title">Đăng nhập • XTPro Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body data-theme="dark">
+    <div class="background-layer" aria-hidden="true">
+        <div class="gradient gradient-primary"></div>
+        <div class="gradient gradient-accent"></div>
+    </div>
+
+    <main class="app-shell" style="max-width: 860px; justify-content: center;">
+        <section class="auth-shell">
+            <div class="auth-card animate-fade-in">
+                <div class="auth-header">
+                    <span class="auth-logo" aria-hidden="true">🚀</span>
+                    <h1 class="auth-title" data-i18n="login.heading">XTPro Admin</h1>
+                    <p class="auth-subtitle" data-i18n="login.subtitle">Đăng nhập để vào trang quản trị</p>
+                    <button type="button" class="ghost-btn" id="langToggle" data-i18n-attr="title:common.lang.label;aria-label:common.lang.label">EN</button>
+                </div>
+
+                <form id="loginForm" class="form">
+                    <div class="form-group">
+                        <label class="form-label" for="username" data-i18n="login.username">Tên đăng nhập</label>
+                        <input class="input" type="text" id="username" name="username" required
+                            data-i18n-attr="placeholder:login.placeholderUsername" placeholder="admin"
+                            autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="password" data-i18n="login.password">Mật khẩu</label>
+                        <input class="input" type="password" id="password" name="password" required
+                            data-i18n-attr="placeholder:login.placeholderPassword" placeholder="••••••••"
+                            autocomplete="current-password">
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="btn-primary btn-block" data-i18n="login.submit">Đăng nhập</button>
+                    <div id="errorMsg" class="error-message" role="alert"></div>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <script src="../assets/js/i18n.js"></script>
+    <script>
+        const form = document.getElementById('loginForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        function updateLoginLangBtn() {
+            const btn = document.getElementById('langToggle');
+            const i18n = window.XTProI18n;
+            if (!btn || !i18n) return;
+            btn.textContent = i18n.getLang() === 'vi' ? 'EN' : 'VI';
+        }
+
+        async function toggleLoginLang() {
+            const i18n = window.XTProI18n;
+            if (!i18n) return;
+            const next = i18n.getLang() === 'vi' ? 'en' : 'vi';
+            i18n.setLang(next);
+            await i18n.loadDict(next);
+            i18n.applyTranslations(document);
+            updateLoginLangBtn();
+        }
+
+        document.getElementById('langToggle')?.addEventListener('click', toggleLoginLang);
+        window.addEventListener('xtpro:i18n:ready', updateLoginLangBtn);
+        window.addEventListener('xtpro:i18n:applied', updateLoginLangBtn);
+
+        function xtproBasePrefix() {
+            const path = window.location.pathname || '/';
+            const idx = path.indexOf('/dashboard');
+            if (idx > 0) return path.slice(0, idx);
+            const parts = path.split('/').filter(Boolean);
+            return parts.length ? `/${parts[0]}` : '';
+        }
+        const BASE_PREFIX = xtproBasePrefix();
+
+        // Check if already logged in
+        if (localStorage.getItem('token')) {
+            window.location.href = `${BASE_PREFIX}/dashboard/`;
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            errorMsg.style.display = 'none';
+            errorMsg.textContent = '';
+            submitBtn.disabled = true;
+            const i18n = window.XTProI18n;
+            const processing = i18n ? i18n.t('login.processing') : 'Đang xử lý...';
+            submitBtn.innerHTML = `<span class="spinner"></span> ${processing}`;
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch(`${BASE_PREFIX}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    localStorage.setItem('token', data.data.token);
+                    localStorage.setItem('user', JSON.stringify({
+                        username: data.data.username,
+                        role: data.data.role
+                    }));
+                    window.location.href = `${BASE_PREFIX}/dashboard/`;
+                } else {
+                    const fallback = i18n ? i18n.t('login.errorDefault') : 'Đăng nhập thất bại';
+                    throw new Error(data.error || fallback);
+                }
+            } catch (err) {
+                errorMsg.textContent = err.message;
+                errorMsg.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = i18n ? i18n.t('login.submit') : 'Đăng nhập';
+            }
+        });
+    </script>
+</body>
+
+</html>

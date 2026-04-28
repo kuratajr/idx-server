@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" data-i18n-attr="content:users.metaDesc" content="Quản trị người dùng XTPro — tạo tài khoản, phân quyền và bảo mật truy cập.">
+    <title data-i18n="users.title">Quản lý người dùng • XTPro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body data-theme="dark">
+    <div class="background-layer" aria-hidden="true">
+        <div class="gradient gradient-primary"></div>
+        <div class="gradient gradient-accent"></div>
+    </div>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-icon">🚀</span>
+                <div>
+                    <h1 class="brand-title" data-i18n="users.heading">xtpro Admin</h1>
+                    <p class="brand-subtitle" data-i18n="users.subtitle">Quản lý người dùng & phân quyền</p>
+                </div>
+            </div>
+            <div class="topbar-actions">
+                <a href="index.html" class="ghost-btn" data-i18n="users.backToDashboard">Dashboard</a>
+                <button onclick="logout()" class="ghost-btn" data-i18n-attr="title:common.actions.logout;aria-label:common.actions.logout">Đăng xuất</button>
+                <button class="ghost-btn" id="langToggle" type="button" data-i18n-attr="title:common.lang.label;aria-label:common.lang.label">EN</button>
+            </div>
+        </header>
+
+        <main class="layout-grid">
+            <section class="panel full-width">
+                <div class="panel-header">
+                    <h2 class="panel-title" data-i18n="users.listTitle">Danh sách người dùng</h2>
+                    <button class="btn-primary" onclick="openCreateUserModal()" data-i18n="users.addUser">+ Thêm người dùng</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th data-i18n="users.username">Username</th>
+                                <th data-i18n="users.email">Email</th>
+                                <th data-i18n="users.role">Role</th>
+                                <th data-i18n="users.createdAt">Ngày tạo</th>
+                                <th class="cell-actions" data-i18n="users.actions">Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersList">
+                            <tr id="usersLoadingRow">
+                                <td colspan="5" class="cell-muted" data-i18n="users.loading">Đang tải...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Create User Modal -->
+    <div id="createUserModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" data-i18n="users.modalTitle">Thêm thành viên mới</h3>
+                <button type="button" class="ghost-btn btn-icon" onclick="closeCreateUserModal()" data-i18n-attr="aria-label:common.actions.close" aria-label="Đóng">✕</button>
+            </div>
+            <form id="createUserForm" class="form">
+                <div class="form-group">
+                    <label class="form-label" data-i18n="users.username">Username</label>
+                    <input class="input" type="text" name="username" required data-i18n-attr="placeholder:users.placeholderUsername" placeholder="vd: huong_admin">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="users.email">Email</label>
+                    <input class="input" type="email" name="email" required data-i18n-attr="placeholder:users.placeholderEmail" placeholder="vd: admin@company.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="users.password">Mật khẩu</label>
+                    <input class="input" type="password" name="password" required placeholder="••••••••">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="ghost-btn" onclick="closeCreateUserModal()" data-i18n="common.actions.cancel">Hủy</button>
+                    <button type="submit" class="btn-primary" data-i18n="users.createAccount">Tạo tài khoản</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="../assets/js/i18n.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        window.addEventListener('xtpro:i18n:ready', () => loadUsers(), { once: true });
+
+        function updateUsersLangBtn() {
+            const btn = document.getElementById('langToggle');
+            const i = window.XTProI18n;
+            if (!btn || !i) return;
+            btn.textContent = i.getLang() === 'vi' ? 'EN' : 'VI';
+        }
+        window.addEventListener('xtpro:i18n:applied', () => {
+            updateUsersLangBtn();
+            if (typeof renderUsers === 'function' && window.__usersListCache) {
+                renderUsers(window.__usersListCache);
+            }
+        });
+
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/users`, { headers: authHeader() });
+                if (!res.ok) throw new Error('Failed');
+                const data = await res.json();
+                renderUsers(data.data || []);
+            } catch (e) {
+                console.error(e);
+                const tbody = document.getElementById('usersList');
+                const i = window.XTProI18n;
+                const msg = i ? i.t('users.loadError') : 'Không thể tải danh sách';
+                if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="cell-muted">${msg}</td></tr>`;
+                window.__usersListCache = null;
+            }
+        }
+
+        function renderUsers(users) {
+            const tbody = document.getElementById('usersList');
+            window.__usersListCache = users;
+            const delLabel = window.XTProI18n ? window.XTProI18n.t('users.delete') : 'Xóa';
+            const loc = window.XTProI18n?.getLang?.() === 'en' ? 'en-US' : 'vi-VN';
+            tbody.innerHTML = users.map(u => `
+                <tr>
+                    <td>
+                        <div style="font-weight:600;">${u.username}</div>
+                        <div class="cell-muted">${u.id}</div>
+                    </td>
+                    <td>${u.email}</td>
+                    <td><span class="badge-role badge-${u.role}">${u.role}</span></td>
+                    <td>${new Date(u.created_at).toLocaleDateString(loc)}</td>
+                    <td class="cell-actions">
+                        <button class="btn-danger btn-sm" onclick="deleteUser('${u.id}')">${delLabel}</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        const modal = document.getElementById('createUserModal');
+        function openCreateUserModal() { modal.classList.add('open'); }
+        function closeCreateUserModal() { modal.classList.remove('open'); }
+
+        modal?.addEventListener('click', (event) => {
+            if (event.target === modal) closeCreateUserModal();
+        });
+
+        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            data.role = 'user'; // Default role
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/users`, {
+                    method: 'POST',
+                    headers: authHeader(),
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    closeCreateUserModal();
+                    loadUsers();
+                    e.target.reset();
+                } else {
+                    const err = await res.json();
+                    const i = window.XTProI18n;
+                    const text = err.error || '';
+                    alert(i ? i.t('users.createFailed', { error: text }) : text);
+                }
+            } catch (error) {
+                const i18n = window.XTProI18n;
+                alert(i18n ? i18n.t('users.connectionError') : 'Lỗi kết nối');
+            }
+        });
+
+        async function deleteUser(id) {
+            const i18n = window.XTProI18n;
+            if (!confirm(i18n ? i18n.t('users.confirmDelete') : 'Bạn có chắc muốn xóa user này?')) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeader()
+                });
+                if (res.ok) loadUsers();
+            } catch (e) {
+                const msg = i18n ? i18n.t('users.deleteError') : 'Lỗi xóa user';
+                alert(msg);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('langToggle');
+            if (!btn) return;
+            btn.addEventListener('click', async () => {
+                if (typeof toggleLanguage === 'function') await toggleLanguage();
+            });
+            updateUsersLangBtn();
+        });
+        window.addEventListener('xtpro:i18n:ready', updateUsersLangBtn);
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="landing.pageTitle">XTPro • Enterprise Tunnel Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2">
+</head>
+
+<body>
+    <div class="background">
+        <div class="background-layer layer-one"></div>
+        <div class="background-layer layer-two"></div>
+        <div class="background-grid"></div>
+    </div>
+
+    <header class="site-header">
+        <div class="shell">
+            <a href="#top" class="brand">
+                <span class="brand-icon" aria-hidden="true">🚀</span>
+                <span class="brand-text">XTPro</span>
+            </a>
+
+            <nav class="nav" data-i18n-attr="aria-label:landing.nav.ariaMain" aria-label="Chính">
+                <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primaryNavigation">
+                    <span class="nav-toggle-line"></span>
+                    <span class="nav-toggle-line"></span>
+                    <span class="nav-toggle-line"></span>
+                    <span class="visually-hidden" data-i18n="landing.nav.toggleMenu">Toggle menu</span>
+                </button>
+                <div class="nav-links" id="primaryNavigation">
+                    <a href="#solutions" data-i18n="landing.nav.solutions">Giải pháp</a>
+                    <a href="#platform" data-i18n="landing.nav.platform">Nền tảng</a>
+                    <a href="#downloads" data-i18n="landing.nav.downloads">Tải về</a>
+                    <a href="#docs" data-i18n="landing.nav.docs">Tài liệu</a>
+                    <a class="ghost-link" href="https://github.com/kuratajr/xtpro" target="_blank"
+                        rel="noopener">GitHub</a>
+                    <button class="lang-toggle" id="langToggle" type="button" data-i18n-attr="aria-label:common.lang.label">EN</button>
+                    <a class="cta" href="../dashboard/" data-i18n="landing.nav.openDashboard">Mở Dashboard</a>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main id="top">
+        <section class="hero">
+            <div class="shell hero-shell">
+                <div class="hero-text">
+                    <span class="hero-badge" data-i18n="landing.hero.badge">Tunnel Platform 7.5 • Bảo mật & Realtime</span>
+                    <h1 data-i18n-html="landing.hero.titleHtml">Expose. Secure. Scale.<br>Đưa dịch vụ nội bộ của bạn ra toàn cầu.</h1>
+                    <p class="lead" data-i18n="landing.hero.lead">XTPro cung cấp hạ tầng tunnel doanh nghiệp giúp kết nối TCP/UDP/HTTP an toàn,
+                        realtime với độ trễ thấp. Từ dev tới production, chúng tôi hỗ trợ mọi hệ điều hành và kịch bản
+                        sử dụng.</p>
+
+                    <div class="hero-actions">
+                        <a class="btn-primary" href="#downloads" data-i18n="landing.hero.ctaFree">Bắt đầu miễn phí</a>
+                        <a class="btn-secondary" href="https://github.com/kuratajr/xtpro" target="_blank"
+                            rel="noopener" data-i18n="landing.hero.ctaSource">Xem mã nguồn</a>
+                        <div class="uptime" data-i18n-attr="aria-label:landing.hero.uptimeAria" aria-label="Thống kê uptime">
+                            <span class="uptime-indicator" aria-hidden="true"></span>
+                            <span data-i18n="landing.hero.uptimeText">Uptime SLA 99.98%</span>
+                        </div>
+                    </div>
+
+                    <dl class="hero-metrics" data-i18n-attr="aria-label:landing.hero.metricsAria" aria-label="Thông số nền tảng">
+                        <div>
+                            <dt data-i18n="landing.hero.metricLatency">Độ trễ trung bình</dt>
+                            <dd>&lt; 40ms</dd>
+                        </div>
+                        <div>
+                            <dt data-i18n="landing.hero.metricTunnels">Tunnel đang hoạt động</dt>
+                            <dd>19.500+</dd>
+                        </div>
+                        <div>
+                            <dt data-i18n="landing.hero.metricCountries">Quốc gia triển khai</dt>
+                            <dd>42</dd>
+                        </div>
+                    </dl>
+                </div>
+                <div class="hero-surface" role="presentation">
+                    <div class="hero-card">
+                        <header>
+                            <span data-i18n="landing.hero.cardFeed">Realtime feed</span>
+                            <span class="status live" data-i18n="landing.hero.cardLive">LIVE</span>
+                        </header>
+                        <ul>
+                            <li>
+                                <div>
+                                    <span class="label">HTTP</span>
+                                    <strong>analytics.staging → https://beta.XTPro.dev</strong>
+                                </div>
+                                <span class="metric">↑ 1.2GB · ↓ 3.8GB</span>
+                            </li>
+                            <li>
+                                <div>
+                                    <span class="label">TCP</span>
+                                    <strong>payments-east → 103.77.246.206:10542</strong>
+                                </div>
+                                <span class="metric">Latency 32ms</span>
+                            </li>
+                            <li>
+                                <div>
+                                    <span class="label">UDP</span>
+                                    <strong>palworld-asia → 103.77.246.206:10012</strong>
+                                </div>
+                                <span class="metric">Players 54</span>
+                            </li>
+                        </ul>
+                        <footer>
+                            <span class="caption" data-i18n="landing.hero.cardFooter">Dữ liệu được đồng bộ realtime từ XTPro Control Center.</span>
+                        </footer>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="solutions" class="section solutions">
+            <div class="shell">
+                <div class="section-heading">
+                    <span class="eyebrow" data-i18n="landing.solutions.eyebrow">Giải pháp toàn diện</span>
+                    <h2 data-i18n="landing.solutions.title">XTPro giúp đội ngũ của bạn ship sản phẩm nhanh hơn.</h2>
+                    <p data-i18n="landing.solutions.subtitle">Hỗ trợ mọi giai đoạn từ phát triển, kiểm thử tới vận hành production trên Windows, Linux, macOS
+                        và thiết bị di động.</p>
+                </div>
+                <div class="solution-grid">
+                    <article class="solution-card">
+                        <header>
+                            <div class="icon" aria-hidden="true">🛠️</div>
+                            <h3 data-i18n="landing.solutions.c1Title">Dev & QA Tunneling</h3>
+                        </header>
+                        <p data-i18n="landing.solutions.c1Desc">Chia sẻ ứng dụng nội bộ cho đồng đội, khách hàng, automation và webhook trong vài giây.</p>
+                        <ul>
+                            <li data-i18n="landing.solutions.c1b1">HTTP/HTTPS với subdomain riêng</li>
+                            <li data-i18n="landing.solutions.c1b2">Tự động cập nhật khi code thay đổi</li>
+                            <li data-i18n="landing.solutions.c1b3">Kết nối ổn định trên mọi mạng</li>
+                        </ul>
+                    </article>
+                    <article class="solution-card">
+                        <header>
+                            <div class="icon" aria-hidden="true">🏢</div>
+                            <h3 data-i18n="landing.solutions.c2Title">Remote Access Zero Trust</h3>
+                        </header>
+                        <p data-i18n="landing.solutions.c2Desc">Truy cập SSH, RDP, database, camera nội bộ với cơ chế xác thực đa tầng và rate-limit.</p>
+                        <ul>
+                            <li data-i18n="landing.solutions.c2b1">Tích hợp JWT & API key</li>
+                            <li data-i18n="landing.solutions.c2b2">Giới hạn IP và cảnh báo bất thường</li>
+                            <li data-i18n="landing.solutions.c2b3">Bảng điều khiển realtime</li>
+                        </ul>
+                    </article>
+                    <article class="solution-card">
+                        <header>
+                            <div class="icon" aria-hidden="true">🎮</div>
+                            <h3 data-i18n="landing.solutions.c3Title">Gaming & Media Streaming</h3>
+                        </header>
+                        <p data-i18n="landing.solutions.c3Desc">Tối ưu UDP với buffer thông minh, kiểm soát băng thông và mô hình auto-reconnect.</p>
+                        <ul>
+                            <li data-i18n="landing.solutions.c3b1">Giảm jitter, giữ ping ổn định</li>
+                            <li data-i18n="landing.solutions.c3b2">Giới hạn người chơi theo server</li>
+                            <li data-i18n="landing.solutions.c3b3">Chế độ chia sẻ file an toàn</li>
+                        </ul>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section id="platform" class="section platform">
+            <div class="shell platform-shell">
+                <div class="platform-content">
+                    <span class="eyebrow" data-i18n="landing.platform.eyebrow">Nền tảng realtime</span>
+                    <h2 data-i18n="landing.platform.title">Bảng điều khiển realtime, quan sát mọi tunnel trong 1 màn hình.</h2>
+                    <p data-i18n="landing.platform.subtitle">Control Center mới với theme tối/sáng, biểu đồ chart.js đồng bộ, toast sự kiện và trạng thái kết
+                        nối chi tiết. Dữ liệu WebSocket được stream liên tục từ server Go.</p>
+                    <ul class="platform-list">
+                        <li><span>•</span><span data-i18n="landing.platform.li1">Thống kê realtime: throughput, session, bytes, heartbeat</span></li>
+                        <li><span>•</span><span data-i18n="landing.platform.li2">Bảng tunnel tối ưu cho desktop & mobile</span></li>
+                        <li><span>•</span><span data-i18n="landing.platform.li3">Tối ưu accessibility và shortcut thao tác nhanh</span></li>
+                    </ul>
+                </div>
+                <div class="platform-visual" role="presentation">
+                    <div class="platform-preview">
+                        <div class="preview-header">
+                            <span data-i18n="landing.platform.previewTitle">XTPro Control Center</span>
+                            <span class="status-pill" data-i18n="landing.platform.previewSynced">Synced</span>
+                        </div>
+                        <div class="preview-body">
+                            <div class="preview-chart"></div>
+                            <ul class="preview-list">
+                                <li>
+                                    <div>
+                                        <span class="tag tag-http">HTTP</span>
+                                        <strong>marketing-site</strong>
+                                    </div>
+                                    <span>↑ 2.5GB · ↓ 6.1GB</span>
+                                </li>
+                                <li>
+                                    <div>
+                                        <span class="tag tag-tcp">TCP</span>
+                                        <strong>internal-api</strong>
+                                    </div>
+                                    <span>Active users 312</span>
+                                </li>
+                                <li>
+                                    <div>
+                                        <span class="tag tag-udp">UDP</span>
+                                        <strong>palworld-sg</strong>
+                                    </div>
+                                    <span>Latency 27ms</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="downloads" class="section downloads">
+            <div class="shell">
+                <div class="section-heading">
+                    <span class="eyebrow" data-i18n="landing.downloads.eyebrow">Đa nền tảng</span>
+                    <h2 data-i18n="landing.downloads.title">Tải về và triển khai chỉ với một lệnh.</h2>
+                    <p data-i18n="landing.downloads.subtitle">Client và server được build Go native, tối ưu hiệu năng và bảo mật cho mọi OS phổ biến.</p>
+                </div>
+                <div class="download-grid">
+                    <article class="download-card">
+                        <header>
+                            <span class="icon" aria-hidden="true">🪟</span>
+                            <h3 data-i18n="landing.downloads.windows">Windows</h3>
+                        </header>
+                        <p data-i18n="landing.downloads.winDesc">Binary đã ký, hỗ trợ Windows 10/11 64-bit.</p>
+                        <div class="card-actions">
+                            <a href="/downloads/latest/xtpro-windows-amd64.exe" class="btn-primary" data-i18n="landing.downloads.client">Client</a>
+                            <a href="/downloads/latest/xtpro-server-windows-amd64.exe" class="btn-link" data-i18n="landing.downloads.server">Server</a>
+                        </div>
+                    </article>
+                    <article class="download-card">
+                        <header>
+                            <span class="icon" aria-hidden="true">🐧</span>
+                            <h3 data-i18n="landing.downloads.linux">Linux</h3>
+                        </header>
+                        <p data-i18n="landing.downloads.linuxDesc">Companion script hỗ trợ systemd, Docker, Kubernetes.</p>
+                        <div class="card-actions">
+                            <a href="/downloads/latest/xtpro-linux-amd64" class="btn-primary" data-i18n="landing.downloads.client">Client</a>
+                            <a href="/downloads/latest/xtpro-server-linux-amd64" class="btn-link" data-i18n="landing.downloads.server">Server</a>
+                        </div>
+                    </article>
+                    <article class="download-card">
+                        <header>
+                            <span class="icon" aria-hidden="true">🍎</span>
+                            <h3 data-i18n="landing.downloads.macos">macOS</h3>
+                        </header>
+                        <p data-i18n="landing.downloads.macDesc">Universal binary cho Intel & Apple Silicon, hỗ trợ brew tap.</p>
+                        <div class="card-actions">
+                            <a href="/downloads/latest/xtpro-darwin-amd64" class="btn-primary" data-i18n="landing.downloads.intel">Intel</a>
+                            <a href="/downloads/latest/xtpro-darwin-arm64" class="btn-link" data-i18n="landing.downloads.appleSilicon">Apple Silicon</a>
+                        </div>
+                    </article>
+                    <article class="download-card">
+                        <header>
+                            <span class="icon" aria-hidden="true">🤖</span>
+                            <h3 data-i18n="landing.downloads.android">Android & ARM</h3>
+                        </header>
+                        <p data-i18n="landing.downloads.androidDesc">Nhẹ và nhanh trên Termux, hỗ trợ OpenWRT & Raspberry Pi.</p>
+                        <div class="card-actions">
+                            <a href="/downloads/latest/xtpro-android-arm64" class="btn-primary" data-i18n="landing.downloads.download">Tải xuống</a>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section id="docs" class="section quickstart">
+            <div class="shell quickstart-shell">
+                <div class="quickstart-content">
+                    <span class="eyebrow" data-i18n="landing.quickstart.eyebrow">Khởi động trong 60 giây</span>
+                    <h2 data-i18n="landing.quickstart.title">Command-line thân thiện, tài liệu rõ ràng.</h2>
+                    <p data-i18n="landing.quickstart.subtitle">Mọi câu lệnh đều có chú thích, giải thích rõ ràng cho người mới. Tài liệu song ngữ Việt/Anh với
+                        checklist bảo mật và troubleshooting.</p>
+                    <ul>
+                        <li data-i18n="landing.quickstart.li1">Hơn 50 ví dụ thực tế cho HTTP, TCP, UDP</li>
+                        <li data-i18n="landing.quickstart.li2">Script cài đặt tự động cho Windows, Linux, macOS</li>
+                        <li data-i18n="landing.quickstart.li3">Cấu hình environment chi tiết + template production</li>
+                    </ul>
+                </div>
+                <div class="code-panel" role="region" data-i18n-attr="aria-label:landing.quickstart.ariaPanel" aria-label="Quickstart commands">
+                    <div class="code-header">
+                        <span data-i18n="landing.quickstart.panelTitle">XTPro quickstart</span>
+                        <button class="copy-btn" type="button" data-target="quickstart-code" data-i18n="common.copy.button">📋 Copy</button>
+                    </div>
+                    <pre><code id="quickstart-code" data-i18n="landing.quickstart.codeBlock"># 1. HTTP tunnel (server tự cấp subdomain HTTPS)
+xtpro --proto http 3000
+
+# 2. Public SSH (TCP mặc định)
+xtpro 22
+
+# 3. Mở nhiều tunnel trong 1 lệnh (multi-port)
+# Cú pháp: [proto:]local[:remoteRequest]
+xtpro tcp:2222:11111 udp:53 http:3000 3389
+
+# 4. Kết nối tới server riêng của bạn
+xtpro --server your-vps.example.com:8882 --ports "http:3000 tcp:22 udp:19132"</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="section cta">
+            <div class="shell cta-shell">
+                <div>
+                    <h2 data-i18n="landing.cta.title">Chỉ cần một lệnh để đưa dịch vụ của bạn ra toàn cầu.</h2>
+                    <p data-i18n="landing.cta.subtitle">Đăng ký miễn phí, nâng cấp khi bạn cần nhiều tunnel hơn, thống kê chi tiết hơn hoặc quyền quản
+                        trị đội nhóm.</p>
+                </div>
+                <div class="cta-actions">
+                    <a class="btn-primary" href="../dashboard/" data-i18n="landing.cta.openCC">Mở Control Center</a>
+                    <a class="btn-secondary" href="mailto:thoainx01@gmail.com" data-i18n="landing.cta.contactEnterprise">Liên hệ doanh nghiệp</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell footer-shell">
+            <div class="footer-brand">
+                <span class="brand-icon" aria-hidden="true">🚀</span>
+                <div>
+                    <strong>XTPro</strong>
+                    <p data-i18n="landing.footer.tagline">Tunnel platform phát triển bởi Kuratajr • @2026.</p>
+                </div>
+            </div>
+            <div class="footer-links">
+                <div>
+                    <h4 data-i18n="landing.footer.product">Sản phẩm</h4>
+                    <a href="#solutions" data-i18n="landing.footer.linkSolutions">Giải pháp</a>
+                    <a href="#platform" data-i18n="landing.footer.linkCC">Control Center</a>
+                    <a href="#downloads" data-i18n="landing.footer.linkDownloads">Downloads</a>
+                </div>
+                <div>
+                    <h4 data-i18n="landing.footer.docs">Tài liệu</h4>
+                    <a href="https://github.com/kuratajr/xtpro" target="_blank" rel="noopener">GitHub</a>
+                </div>
+                <div>
+                    <h4 data-i18n="landing.footer.contact">Liên hệ</h4>
+                    <a href="mailto:thoainx01@gmail.com">thoainx01@gmail.com</a>
+                    <a href="https://t.me/kuratajr" target="_blank" rel="noopener">Telegram</a>
+                    <a href="https://www.xuanthoait.site" target="_blank" rel="noopener" data-i18n="landing.footer.portfolio">Portfolio</a>
+                </div>
+            </div>
+            <p class="footer-meta" data-i18n="landing.footer.meta">FREE for non-commercial use • Liên hệ để được cấp phép doanh nghiệp & hỗ trợ SLA.</p>
+        </div>
+    </footer>
+
+    <script src="../assets/js/i18n.js" defer></script>
+    <script src="script.js?v=2" defer></script>
+</body>
+
+</html>
