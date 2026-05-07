@@ -131,6 +131,10 @@ func routers(r *gin.Engine, frontendDist fs.FS) {
 	auth.POST("/server/:id/gcp/access-token", commonHandler(generateServerGCPAccessToken))
 	auth.GET("/server/config/:id", commonHandler(getServerConfig))
 	auth.POST("/server/config", commonHandler(setServerConfig))
+
+	// Tunnel control (per-node)
+	auth.POST("/server/:id/tunnel/sync", commonHandler(tunnelSync))
+	auth.GET("/server/:id/tunnel/status", commonHandler(tunnelStatus))
 	auth.POST("/batch-delete/server", commonHandler(batchDeleteServer))
 	auth.POST("/batch-move/server", commonHandler(batchMoveServer))
 	auth.POST("/force-update/server", commonHandler(forceUpdateServer))
