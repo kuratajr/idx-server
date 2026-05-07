@@ -26,6 +26,8 @@ const (
 	TaskTypeFM
 	TaskTypeReportConfig
 	TaskTypeApplyConfig
+	TaskTypeTunnelSync
+	TaskTypeTunnelReport
 )
 
 type TerminalTask struct {
@@ -133,7 +135,8 @@ func IsServiceSentinelNeeded(t uint64) bool {
 	switch t {
 	case TaskTypeCommand, TaskTypeTerminalGRPC, TaskTypeUpgrade,
 		TaskTypeKeepalive, TaskTypeNAT, TaskTypeFM,
-		TaskTypeReportConfig, TaskTypeApplyConfig:
+		TaskTypeReportConfig, TaskTypeApplyConfig,
+		TaskTypeTunnelSync, TaskTypeTunnelReport:
 		return false
 	default:
 		return true

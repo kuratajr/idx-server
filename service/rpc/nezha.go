@@ -152,6 +152,14 @@ func (s *NezhaHandler) RequestTask(stream pb.NezhaService_RequestTaskServer) err
 				}
 				server.ConfigCache <- result.Data
 			}
+		case model.TaskTypeTunnelSync, model.TaskTypeTunnelReport:
+			if len(server.TunnelCache) < 1 {
+				if !result.GetSuccessful() {
+					server.TunnelCache <- errors.New(result.Data)
+					continue
+				}
+				server.TunnelCache <- result.Data
+			}
 		default:
 			if model.IsServiceSentinelNeeded(result.GetType()) {
 				singleton.ServiceSentinelShared.Dispatch(singleton.ReportData{

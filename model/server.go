@@ -43,6 +43,7 @@ type Server struct {
 
 	TaskStream  pb.NezhaService_RequestTaskServer `gorm:"-" json:"-"`
 	ConfigCache chan any                          `gorm:"-" json:"-"`
+	TunnelCache chan any                          `gorm:"-" json:"-"`
 
 	// Runtime fields populated from agent gRPC metadata.
 	RuntimeIDX           bool   `gorm:"-" json:"-"`
@@ -57,6 +58,7 @@ func InitServer(s *Server) {
 	s.State = &HostState{}
 	s.GeoIP = &GeoIP{}
 	s.ConfigCache = make(chan any, 1)
+	s.TunnelCache = make(chan any, 1)
 }
 
 func (s *Server) CopyFromRunningServer(old *Server) {
@@ -66,6 +68,7 @@ func (s *Server) CopyFromRunningServer(old *Server) {
 	s.LastActive = old.LastActive
 	s.TaskStream = old.TaskStream
 	s.ConfigCache = old.ConfigCache
+	s.TunnelCache = old.TunnelCache
 	s.PrevTransferInSnapshot = old.PrevTransferInSnapshot
 	s.PrevTransferOutSnapshot = old.PrevTransferOutSnapshot
 }
