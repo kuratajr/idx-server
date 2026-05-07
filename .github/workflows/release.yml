@@ -31,9 +31,22 @@ jobs:
           wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
           chmod +x /usr/bin/yq
 
-      - run: git config --global --add safe.directory /__w/nezha/nezha
-
       - uses: actions/checkout@v4
+        with:
+          # GoReleaser reads git state (tags/commits). Fetch full history.
+          fetch-depth: 0
+
+      - name: Mark workspace as safe for git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Debug git workspace (for GoReleaser)
+        run: |
+          pwd
+          ls -la
+          ls -la .git || true
+          git rev-parse --is-inside-work-tree
+          git describe --tags --always || true
 
       - name: Prepare frontends' dists
         run: |
@@ -105,6 +118,7 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: build --single-target --clean --skip=validate
+          workdir: ${{ github.workspace }}
 
       - name: Build snapshot
         if: contains(github.ref, 'refs/tags/') == false
@@ -117,6 +131,7 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: build --single-target --clean --skip=validate --snapshot
+          workdir: ${{ github.workspace }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
