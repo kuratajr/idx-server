@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -34,6 +36,14 @@ const (
 	maxConnections    = 10000
 )
 
+const (
+	udpMsgHandshake byte = 1
+	udpMsgData      byte = 2
+	udpMsgClose     byte = 3
+	udpMsgPing      byte = 4
+	udpMsgPong      byte = 5
+)
+
 type server struct {
 	listenPort int
 	publicHost string
@@ -58,6 +68,10 @@ type server struct {
 	totalBytesDown    uint64
 
 	tunnelListener net.Listener
+
+	udpServer   *net.UDPConn
+	udpMu       sync.Mutex
+	udpSessions map[string]*udpServerSession
 }
 
 type clientSession struct {
@@ -85,6 +99,21 @@ type clientSession struct {
 	publicListener net.Listener
 
 	activeProxyConnections int64
+
+	udpSecret []byte
+}
+
+type udpServerSession struct {
+	id        string
+	clientKey string
+	udpSecret []byte
+
+	conn       *net.UDPConn
+	remoteAddr *net.UDPAddr
+	clientAddr *net.UDPAddr
+
+	closeOnce sync.Once
+	closed    chan struct{}
 }
 
 type jsonWriter struct {
@@ -119,6 +148,7 @@ func newServer(cfg *config.Config) *server {
 		connSemaphore:  make(chan struct{}, maxConnections),
 		runtimeStart:   time.Now(),
 		availablePorts: make([]int, 0, cfg.Server.PublicPortEnd-cfg.Server.PublicPortStart+1),
+		udpSessions:    make(map[string]*udpServerSession),
 	}
 	for port := cfg.Server.PublicPortStart; port <= cfg.Server.PublicPortEnd; port++ {
 		s.availablePorts = append(s.availablePorts, port)
@@ -128,6 +158,10 @@ func newServer(cfg *config.Config) *server {
 
 func (s *server) run(ctx context.Context) error {
 	tunnelPort := s.listenPort + 1
+
+	if err := s.startUDPServer(tunnelPort); err != nil {
+		log.Printf("[xtpro/udp] failed to start UDP control server on port %d: %v", tunnelPort, err)
+	}
 
 	certFile := "server.crt"
 	keyFile := "server.key"
@@ -181,6 +215,9 @@ func (s *server) run(ctx context.Context) error {
 func (s *server) stop(ctx context.Context) error {
 	if s.tunnelListener != nil {
 		_ = s.tunnelListener.Close()
+	}
+	if s.udpServer != nil {
+		_ = s.udpServer.Close()
 	}
 	return nil
 }
@@ -284,8 +321,16 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 	}
 	session.key = key
 	session.target = msg.Target
-	session.protocol = "tcp"
-	session.publicPort = s.getNextPublicPort()
+	session.protocol = strings.ToLower(strings.TrimSpace(msg.Protocol))
+	if session.protocol == "" {
+		session.protocol = "tcp"
+	}
+	session.publicPort = s.getNextPublicPort(msg.RequestedPort)
+
+	udpSecret, err := tunnel.GenerateKey()
+	if err == nil {
+		session.udpSecret = udpSecret
+	}
 
 	s.addClient(session)
 
@@ -297,12 +342,17 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 		Protocol:   session.protocol,
 		Version:    tunnel.Version,
 	}
+	if session.udpSecret != nil {
+		resp.UDPSecret = base64.StdEncoding.EncodeToString(session.udpSecret)
+	}
 	if err := session.enc.Encode(resp); err != nil {
 		return err
 	}
 
 	go s.heartbeatChecker(session)
-	go s.startPublicListener(session)
+	if session.protocol == "tcp" {
+		go s.startPublicListener(session)
+	}
 
 	atomic.AddInt64(&s.activeConnections, 1)
 	defer atomic.AddInt64(&s.activeConnections, -1)
@@ -318,8 +368,13 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 		session.mu.Lock()
 		session.lastSeen = time.Now()
 		session.mu.Unlock()
-		if m.Type == "ping" {
+		switch m.Type {
+		case "ping":
 			_ = session.enc.Encode(tunnel.Message{Type: "pong"})
+		case "udp_open":
+			go s.handleUDPOpen(session, m)
+		case "udp_close", "udp_idle":
+			s.handleUDPClose(m.ID)
 		}
 	}
 }
@@ -359,9 +414,20 @@ func (s *server) removeClient(session *clientSession) {
 	session.Close()
 }
 
-func (s *server) getNextPublicPort() int {
+func (s *server) getNextPublicPort(requestedPort int) int {
 	s.portMu.Lock()
 	defer s.portMu.Unlock()
+
+	if requestedPort > 0 && !s.usedPorts[requestedPort] {
+		for i, p := range s.availablePorts {
+			if p == requestedPort {
+				s.availablePorts = append(s.availablePorts[:i], s.availablePorts[i+1:]...)
+				s.usedPorts[requestedPort] = true
+				return requestedPort
+			}
+		}
+	}
+
 	if len(s.availablePorts) == 0 {
 		return 10000
 	}
@@ -567,6 +633,256 @@ func (session *clientSession) Close() {
 		}
 		session.mu.Unlock()
 	})
+}
+
+func (s *udpServerSession) Close() {
+	s.closeOnce.Do(func() {
+		close(s.closed)
+		if s.conn != nil {
+			_ = s.conn.Close()
+		}
+	})
+}
+
+func (s *server) startUDPServer(port int) error {
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return err
+	}
+
+	s.udpServer = conn
+	_ = conn.SetReadBuffer(4 * 1024 * 1024)
+	_ = conn.SetWriteBuffer(4 * 1024 * 1024)
+
+	go s.readUDPControl()
+	log.Printf("[xtpro/udp] UDP control server listening on port %d", port)
+	return nil
+}
+
+func (s *server) readUDPControl() {
+	if s.udpServer == nil {
+		return
+	}
+	buf := make([]byte, 65535)
+	for {
+		n, addr, err := s.udpServer.ReadFromUDP(buf)
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				log.Printf("[xtpro/udp] UDP control read error: %v", err)
+			}
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		go s.handleUDPControlPacket(packet, addr)
+	}
+}
+
+func (s *server) handleUDPControlPacket(packet []byte, addr *net.UDPAddr) {
+	if len(packet) < 3 {
+		return
+	}
+	msgType := packet[0]
+	key, idx, ok := decodeUDPField(packet, 1)
+	if !ok || key == "" {
+		return
+	}
+	switch msgType {
+	case udpMsgHandshake:
+		_ = s.sendUDPResponse(addr, udpMsgHandshake, key, "", nil)
+	case udpMsgData:
+		id, next, ok := decodeUDPField(packet, idx)
+		if !ok || id == "" {
+			return
+		}
+		payload := make([]byte, len(packet)-next)
+		copy(payload, packet[next:])
+		s.handleUDPDataFromClient(key, id, payload, addr)
+	case udpMsgClose:
+		id, _, ok := decodeUDPField(packet, idx)
+		if !ok || id == "" {
+			return
+		}
+		s.handleUDPClose(id)
+	case udpMsgPing:
+		payload := make([]byte, len(packet)-idx)
+		copy(payload, packet[idx:])
+		_ = s.sendUDPResponse(addr, udpMsgPong, key, "", payload)
+	}
+}
+
+func (s *server) handleUDPOpen(session *clientSession, msg tunnel.Message) {
+	if session.protocol != "udp" {
+		return
+	}
+	remoteAddr := strings.TrimSpace(msg.RemoteAddr)
+	if remoteAddr == "" || strings.TrimSpace(msg.ID) == "" {
+		return
+	}
+	addr, err := net.ResolveUDPAddr("udp", remoteAddr)
+	if err != nil {
+		return
+	}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return
+	}
+
+	udpSession := &udpServerSession{
+		id:         msg.ID,
+		clientKey:  session.key,
+		udpSecret:  session.udpSecret,
+		conn:       conn,
+		remoteAddr: addr,
+		closed:     make(chan struct{}),
+	}
+
+	s.udpMu.Lock()
+	s.udpSessions[msg.ID] = udpSession
+	s.udpMu.Unlock()
+
+	go s.readFromUDPRemote(udpSession)
+}
+
+func (s *server) handleUDPClose(sessionID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	s.udpMu.Lock()
+	udpSession := s.udpSessions[sessionID]
+	if udpSession != nil {
+		delete(s.udpSessions, sessionID)
+	}
+	s.udpMu.Unlock()
+	if udpSession != nil {
+		udpSession.Close()
+	}
+}
+
+func (s *server) readFromUDPRemote(session *udpServerSession) {
+	defer s.handleUDPClose(session.id)
+	buf := make([]byte, 65535)
+	for {
+		n, err := session.conn.Read(buf)
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				log.Printf("[xtpro/udp] UDP remote read error (%s): %v", session.id, err)
+			}
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		payload := make([]byte, n)
+		copy(payload, buf[:n])
+		if err := s.sendUDPData(session.clientKey, session.id, payload); err != nil {
+			return
+		}
+	}
+}
+
+func (s *server) handleUDPDataFromClient(clientKey, sessionID string, payload []byte, clientAddr *net.UDPAddr) {
+	s.udpMu.Lock()
+	session := s.udpSessions[sessionID]
+	s.udpMu.Unlock()
+	if session == nil || session.clientKey != clientKey {
+		return
+	}
+
+	if session.clientAddr == nil || session.clientAddr.String() != clientAddr.String() {
+		session.clientAddr = clientAddr
+	}
+
+	if session.udpSecret != nil {
+		decrypted, err := tunnel.DecryptUDP(session.udpSecret, payload)
+		if err != nil {
+			return
+		}
+		payload = decrypted
+	}
+
+	if _, err := session.conn.Write(payload); err != nil {
+		s.handleUDPClose(sessionID)
+	}
+}
+
+func (s *server) sendUDPData(clientKey, sessionID string, payload []byte) error {
+	s.udpMu.Lock()
+	session := s.udpSessions[sessionID]
+	s.udpMu.Unlock()
+	if session == nil {
+		return errors.New("udp session not found")
+	}
+
+	if session.udpSecret != nil {
+		encrypted, err := tunnel.EncryptUDP(session.udpSecret, payload)
+		if err != nil {
+			return err
+		}
+		payload = encrypted
+	}
+
+	if session.clientAddr == nil {
+		return nil
+	}
+	return s.writeUDP(udpMsgData, clientKey, sessionID, payload, session.clientAddr)
+}
+
+func (s *server) sendUDPResponse(addr *net.UDPAddr, msgType byte, key, id string, payload []byte) error {
+	return s.writeUDP(msgType, key, id, payload, addr)
+}
+
+func (s *server) writeUDP(msgType byte, key, id string, payload []byte, addr *net.UDPAddr) error {
+	if s.udpServer == nil {
+		return errors.New("udp server not available")
+	}
+	buf := buildUDPMessage(msgType, key, id, payload)
+	_, err := s.udpServer.WriteToUDP(buf, addr)
+	return err
+}
+
+func decodeUDPField(packet []byte, offset int) (string, int, bool) {
+	if offset+2 > len(packet) {
+		return "", offset, false
+	}
+	l := int(binary.BigEndian.Uint16(packet[offset : offset+2]))
+	offset += 2
+	if l < 0 || offset+l > len(packet) {
+		return "", offset, false
+	}
+	return string(packet[offset : offset+l]), offset + l, true
+}
+
+func buildUDPMessage(msgType byte, key, id string, payload []byte) []byte {
+	keyLen := len(key)
+	idLen := len(id)
+	total := 1 + 2 + keyLen
+	if msgType != udpMsgHandshake {
+		total += 2 + idLen
+	}
+	total += len(payload)
+
+	buf := make([]byte, total)
+	buf[0] = msgType
+	binary.BigEndian.PutUint16(buf[1:], uint16(keyLen))
+	copy(buf[3:], key)
+	offset := 3 + keyLen
+
+	if msgType != udpMsgHandshake {
+		binary.BigEndian.PutUint16(buf[offset:], uint16(idLen))
+		offset += 2
+		copy(buf[offset:], id)
+		offset += idLen
+	}
+	copy(buf[offset:], payload)
+	return buf
 }
 
 func generateSelfSignedCert(certFile, keyFile string) error {
