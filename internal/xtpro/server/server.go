@@ -807,6 +807,9 @@ func (s *server) handleUDPControlPacket(packet []byte, addr *net.UDPAddr) {
 		s.udpMu.Unlock()
 		_ = s.sendUDPResponse(addr, udpMsgHandshake, key, "", nil)
 	case udpMsgData:
+		s.udpMu.Lock()
+		s.udpClientAddrs[key] = addr
+		s.udpMu.Unlock()
 		id, next, ok := decodeUDPField(packet, idx)
 		if !ok || id == "" {
 			return
@@ -911,6 +914,10 @@ func (s *server) handleUDPDataFromClient(clientKey, sessionID string, payload []
 	if session.clientAddr == nil || session.clientAddr.String() != clientAddr.String() {
 		session.clientAddr = clientAddr
 	}
+	// Keep latest UDP-control address for this client key (NAT can change source port).
+	s.udpMu.Lock()
+	s.udpClientAddrs[clientKey] = clientAddr
+	s.udpMu.Unlock()
 
 	if session.udpSecret != nil {
 		decrypted, err := tunnel.DecryptUDP(session.udpSecret, payload)
@@ -955,10 +962,21 @@ func (s *server) sendUDPData(clientKey, sessionID string, payload []byte) error 
 		payload = encrypted
 	}
 
-	if session.clientAddr == nil {
+	// Prefer session-bound addr; if missing, fall back to last known addr for this client key.
+	addr := session.clientAddr
+	if addr == nil {
+		s.udpMu.Lock()
+		addr = s.udpClientAddrs[clientKey]
+		s.udpMu.Unlock()
+		// Cache it back for next sends.
+		if addr != nil {
+			session.clientAddr = addr
+		}
+	}
+	if addr == nil {
 		return nil
 	}
-	return s.writeUDP(udpMsgData, clientKey, sessionID, payload, session.clientAddr)
+	return s.writeUDP(udpMsgData, clientKey, sessionID, payload, addr)
 }
 
 func (s *server) sendUDPResponse(addr *net.UDPAddr, msgType byte, key, id string, payload []byte) error {
