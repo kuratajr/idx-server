@@ -47,6 +47,8 @@ const (
 type server struct {
 	listenPort int
 	publicHost string
+	publicPortStart int
+	publicPortEnd   int
 
 	clients   map[string]*clientSession
 	clientsMu sync.RWMutex
@@ -151,6 +153,8 @@ func newServer(cfg *config.Config) *server {
 	s := &server{
 		listenPort:     cfg.Server.Port,
 		publicHost:     cfg.Server.PublicHost,
+		publicPortStart: cfg.Server.PublicPortStart,
+		publicPortEnd:   cfg.Server.PublicPortEnd,
 		clients:        make(map[string]*clientSession),
 		usedPorts:      make(map[int]bool),
 		proxyWaiting:   make(map[string]chan net.Conn),
@@ -336,6 +340,8 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 		session.protocol = "tcp"
 	}
 	session.publicPort = s.getNextPublicPort(msg.RequestedPort)
+	log.Printf("[xtpro] register client=%s protocol=%s requested_port=%d assigned_port=%d target=%s",
+		session.clientID, session.protocol, msg.RequestedPort, session.publicPort, session.target)
 
 	udpSecret, err := tunnel.GenerateKey()
 	if err == nil {
@@ -430,14 +436,18 @@ func (s *server) getNextPublicPort(requestedPort int) int {
 	s.portMu.Lock()
 	defer s.portMu.Unlock()
 
-	if requestedPort > 0 && !s.usedPorts[requestedPort] {
+	// Honor requested port if it's within the public port pool and not currently used.
+	// We remove it from availablePorts if present, but we don't require it to be present there
+	// (availablePorts can get out of sync if other operations reserve/release ports).
+	if requestedPort >= s.publicPortStart && requestedPort <= s.publicPortEnd && !s.usedPorts[requestedPort] {
 		for i, p := range s.availablePorts {
 			if p == requestedPort {
 				s.availablePorts = append(s.availablePorts[:i], s.availablePorts[i+1:]...)
-				s.usedPorts[requestedPort] = true
-				return requestedPort
+				break
 			}
 		}
+		s.usedPorts[requestedPort] = true
+		return requestedPort
 	}
 
 	if len(s.availablePorts) == 0 {
