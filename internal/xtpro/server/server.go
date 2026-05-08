@@ -112,6 +112,7 @@ type udpServerSession struct {
 	id        string
 	clientKey string
 	udpSecret []byte
+	owner     *clientSession
 
 	conn       *net.UDPConn
 	remoteAddr *net.UDPAddr
@@ -653,6 +654,7 @@ func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPC
 			id:         sessionID,
 			clientKey:  cs.key,
 			udpSecret:  cs.udpSecret,
+			owner:      cs,
 			publicConn: publicConn,
 			publicPeer: peer,
 			clientAddr: clientAddr,
@@ -665,6 +667,9 @@ func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPC
 	s.udpMu.Unlock()
 
 	udpSess.mu.Lock()
+	if udpSess.owner == nil {
+		udpSess.owner = cs
+	}
 	udpSess.publicPeer = peer
 	udpSess.lastActive = time.Now()
 	udpSess.mu.Unlock()
@@ -883,6 +888,7 @@ func (s *server) handleUDPOpen(session *clientSession, msg tunnel.Message) {
 		id:         msg.ID,
 		clientKey:  session.key,
 		udpSecret:  session.udpSecret,
+		owner:      session,
 		conn:       conn,
 		remoteAddr: addr,
 		closed:     make(chan struct{}),
@@ -956,6 +962,13 @@ func (s *server) handleUDPDataFromClient(clientKey, sessionID string, payload []
 		payload = decrypted
 	}
 
+	// Count client -> public/remote as upload (client outbound).
+	if owner := session.owner; owner != nil {
+		n := uint64(len(payload))
+		atomic.AddUint64(&owner.bytesUp, n)
+		atomic.AddUint64(&s.totalBytesUp, n)
+	}
+
 	session.mu.Lock()
 	session.lastActive = time.Now()
 	publicConn := session.publicConn
@@ -981,6 +994,13 @@ func (s *server) sendUDPData(clientKey, sessionID string, payload []byte) error 
 	s.udpMu.Unlock()
 	if session == nil {
 		return errors.New("udp session not found")
+	}
+
+	// Count public/remote -> client as download (client inbound).
+	if owner := session.owner; owner != nil {
+		n := uint64(len(payload))
+		atomic.AddUint64(&owner.bytesDown, n)
+		atomic.AddUint64(&s.totalBytesDown, n)
 	}
 
 	if session.udpSecret != nil {
