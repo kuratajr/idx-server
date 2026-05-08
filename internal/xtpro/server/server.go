@@ -72,6 +72,8 @@ type server struct {
 	udpServer   *net.UDPConn
 	udpMu       sync.Mutex
 	udpSessions map[string]*udpServerSession
+
+	udpClientAddrs map[string]*net.UDPAddr // clientKey -> last known UDP control addr
 }
 
 type clientSession struct {
@@ -97,6 +99,7 @@ type clientSession struct {
 	remoteIP string
 
 	publicListener net.Listener
+	publicUDP      *net.UDPConn
 
 	activeProxyConnections int64
 
@@ -110,10 +113,16 @@ type udpServerSession struct {
 
 	conn       *net.UDPConn
 	remoteAddr *net.UDPAddr
-	clientAddr *net.UDPAddr
+	clientAddr *net.UDPAddr // client's UDP control addr (where to send control packets)
+
+	publicConn *net.UDPConn
+	publicPeer *net.UDPAddr
 
 	closeOnce sync.Once
 	closed    chan struct{}
+
+	mu         sync.Mutex
+	lastActive time.Time
 }
 
 type jsonWriter struct {
@@ -149,6 +158,7 @@ func newServer(cfg *config.Config) *server {
 		runtimeStart:   time.Now(),
 		availablePorts: make([]int, 0, cfg.Server.PublicPortEnd-cfg.Server.PublicPortStart+1),
 		udpSessions:    make(map[string]*udpServerSession),
+		udpClientAddrs: make(map[string]*net.UDPAddr),
 	}
 	for port := cfg.Server.PublicPortStart; port <= cfg.Server.PublicPortEnd; port++ {
 		s.availablePorts = append(s.availablePorts, port)
@@ -352,6 +362,8 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 	go s.heartbeatChecker(session)
 	if session.protocol == "tcp" {
 		go s.startPublicListener(session)
+	} else if session.protocol == "udp" {
+		go s.startPublicUDPListener(session)
 	}
 
 	atomic.AddInt64(&s.activeConnections, 1)
@@ -479,6 +491,48 @@ func (s *server) startPublicListener(session *clientSession) {
 	}
 }
 
+func (s *server) startPublicUDPListener(session *clientSession) {
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", session.publicPort))
+	if err != nil {
+		return
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return
+	}
+
+	session.mu.Lock()
+	select {
+	case <-session.done:
+		session.mu.Unlock()
+		_ = conn.Close()
+		return
+	default:
+		session.publicUDP = conn
+	}
+	session.mu.Unlock()
+
+	defer conn.Close()
+
+	buf := make([]byte, 65535)
+	for {
+		n, peer, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+				return
+			}
+			continue
+		}
+		if n == 0 {
+			continue
+		}
+
+		payload := make([]byte, n)
+		copy(payload, buf[:n])
+		s.handlePublicUDPDatagram(session, conn, peer, payload)
+	}
+}
+
 func (s *server) handlePublicConnection(session *clientSession, publicConn net.Conn) {
 	defer publicConn.Close()
 
@@ -551,6 +605,45 @@ func (s *server) handleProxyStream(session *clientSession, publicConn, clientCon
 	atomic.AddUint64(&session.bytesDown, uint64(n))
 	atomic.AddUint64(&s.totalBytesDown, uint64(n))
 	wg.Wait()
+}
+
+func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPConn, peer *net.UDPAddr, payload []byte) {
+	// We need a known UDP control address for this client key to deliver packets.
+	s.udpMu.Lock()
+	clientAddr := s.udpClientAddrs[cs.key]
+	s.udpMu.Unlock()
+	if clientAddr == nil {
+		// Client hasn't established UDP control path yet (handshake/ping/data).
+		return
+	}
+
+	peerKey := peer.String()
+	sessionID := cs.key + "|" + peerKey
+
+	s.udpMu.Lock()
+	udpSess := s.udpSessions[sessionID]
+	if udpSess == nil {
+		udpSess = &udpServerSession{
+			id:         sessionID,
+			clientKey:  cs.key,
+			udpSecret:  cs.udpSecret,
+			publicConn: publicConn,
+			publicPeer: peer,
+			clientAddr: clientAddr,
+			closed:     make(chan struct{}),
+			lastActive: time.Now(),
+		}
+		s.udpSessions[sessionID] = udpSess
+	}
+	s.udpMu.Unlock()
+
+	udpSess.mu.Lock()
+	udpSess.publicPeer = peer
+	udpSess.lastActive = time.Now()
+	udpSess.mu.Unlock()
+
+	// Send datagram to client over UDP control channel.
+	_ = s.sendUDPData(cs.key, sessionID, payload)
 }
 
 func (s *server) sendDashboardUpdate(conn *websocket.Conn) error {
@@ -631,6 +724,9 @@ func (session *clientSession) Close() {
 		if session.publicListener != nil {
 			_ = session.publicListener.Close()
 		}
+		if session.publicUDP != nil {
+			_ = session.publicUDP.Close()
+		}
 		session.mu.Unlock()
 	})
 }
@@ -696,6 +792,9 @@ func (s *server) handleUDPControlPacket(packet []byte, addr *net.UDPAddr) {
 	}
 	switch msgType {
 	case udpMsgHandshake:
+		s.udpMu.Lock()
+		s.udpClientAddrs[key] = addr
+		s.udpMu.Unlock()
 		_ = s.sendUDPResponse(addr, udpMsgHandshake, key, "", nil)
 	case udpMsgData:
 		id, next, ok := decodeUDPField(packet, idx)
@@ -712,6 +811,9 @@ func (s *server) handleUDPControlPacket(packet []byte, addr *net.UDPAddr) {
 		}
 		s.handleUDPClose(id)
 	case udpMsgPing:
+		s.udpMu.Lock()
+		s.udpClientAddrs[key] = addr
+		s.udpMu.Unlock()
 		payload := make([]byte, len(packet)-idx)
 		copy(payload, packet[idx:])
 		_ = s.sendUDPResponse(addr, udpMsgPong, key, "", payload)
@@ -808,8 +910,22 @@ func (s *server) handleUDPDataFromClient(clientKey, sessionID string, payload []
 		payload = decrypted
 	}
 
-	if _, err := session.conn.Write(payload); err != nil {
-		s.handleUDPClose(sessionID)
+	session.mu.Lock()
+	session.lastActive = time.Now()
+	publicConn := session.publicConn
+	publicPeer := session.publicPeer
+	remoteConn := session.conn
+	session.mu.Unlock()
+
+	switch {
+	case remoteConn != nil:
+		if _, err := remoteConn.Write(payload); err != nil {
+			s.handleUDPClose(sessionID)
+		}
+	case publicConn != nil && publicPeer != nil:
+		_, _ = publicConn.WriteToUDP(payload, publicPeer)
+	default:
+		// nowhere to forward
 	}
 }
 
