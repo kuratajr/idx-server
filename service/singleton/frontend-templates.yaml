@@ -2,7 +2,7 @@
   name: "OfficialAdmin"
   repository: "https://github.com/kuratajr/idx-admin"
   author: "kuratajr"
-  version: "v0.0.1"
+  version: "v0.0.2"
   is_admin: true
   is_official: true
 - path: "user-dist"
