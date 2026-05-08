@@ -630,6 +630,7 @@ func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPC
 	peerKey := peer.String()
 	sessionID := cs.key + "|" + peerKey
 
+	created := false
 	s.udpMu.Lock()
 	udpSess := s.udpSessions[sessionID]
 	if udpSess == nil {
@@ -644,6 +645,7 @@ func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPC
 			lastActive: time.Now(),
 		}
 		s.udpSessions[sessionID] = udpSess
+		created = true
 	}
 	s.udpMu.Unlock()
 
@@ -651,6 +653,18 @@ func (s *server) handlePublicUDPDatagram(cs *clientSession, publicConn *net.UDPC
 	udpSess.publicPeer = peer
 	udpSess.lastActive = time.Now()
 	udpSess.mu.Unlock()
+
+	// Ensure the agent opens a corresponding local UDP session before we start sending data.
+	// The agent drops udpMsgData if it doesn't have an in-memory session for this ID yet.
+	if created {
+		go func() {
+			_ = cs.enc.Encode(tunnel.Message{
+				Type:       "udp_open",
+				ID:         sessionID,
+				RemoteAddr: peerKey,
+			})
+		}()
+	}
 
 	// Send datagram to client over UDP control channel.
 	_ = s.sendUDPData(cs.key, sessionID, payload)

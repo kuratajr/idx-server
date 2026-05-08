@@ -24,3 +24,8 @@
 /resource/template/theme-custom
 /resource/static/custom
 /cmd/dashboard/docs
+
+# Local runtime data / generated certs
+/data/
+/server.crt
+/server.key
