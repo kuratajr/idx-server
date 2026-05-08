@@ -371,6 +371,9 @@ func (s *server) handleClient(session *clientSession, msg tunnel.Message) error 
 		go s.startPublicListener(session)
 	} else if session.protocol == "udp" {
 		go s.startPublicUDPListener(session)
+	} else if session.protocol == "both" {
+		go s.startPublicListener(session)
+		go s.startPublicUDPListener(session)
 	}
 
 	atomic.AddInt64(&s.activeConnections, 1)

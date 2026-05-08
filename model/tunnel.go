@@ -11,6 +11,7 @@ type TunnelProtocol string
 const (
 	TunnelProtocolTCP  TunnelProtocol = "tcp"
 	TunnelProtocolUDP  TunnelProtocol = "udp"
+	TunnelProtocolBoth TunnelProtocol = "both"
 	TunnelProtocolHTTP TunnelProtocol = "http"
 	TunnelProtocolFile TunnelProtocol = "file"
 )
