@@ -422,6 +422,21 @@ func (s *server) addClient(session *clientSession) {
 	s.clientsMu.Unlock()
 }
 
+func (s *server) kickClient(clientID string) bool {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return false
+	}
+	s.clientsMu.RLock()
+	session := s.clients[clientID]
+	s.clientsMu.RUnlock()
+	if session == nil {
+		return false
+	}
+	s.removeClient(session)
+	return true
+}
+
 func (s *server) removeClient(session *clientSession) {
 	s.clientsMu.Lock()
 	if existing, ok := s.clients[session.clientID]; ok && existing == session {

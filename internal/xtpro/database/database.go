@@ -277,6 +277,25 @@ func (d *Database) GetTunnelsByUserID(userID string) ([]*models.Tunnel, error) {
 	return tunnels, rows.Err()
 }
 
+func (d *Database) GetTunnelByID(tunnelID string) (*models.Tunnel, error) {
+	tunnel := &models.Tunnel{}
+	query := `
+		SELECT id, user_id, name, protocol, local_host, local_port, public_port,
+			   status, client_id, auth_token, created_at, updated_at, last_seen
+		FROM tunnels WHERE id = $1
+	`
+	err := d.db.QueryRow(query, tunnelID).Scan(
+		&tunnel.ID, &tunnel.UserID, &tunnel.Name, &tunnel.Protocol,
+		&tunnel.LocalHost, &tunnel.LocalPort, &tunnel.PublicPort,
+		&tunnel.Status, &tunnel.ClientID, &tunnel.AuthToken,
+		&tunnel.CreatedAt, &tunnel.UpdatedAt, &tunnel.LastSeen,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return tunnel, nil
+}
+
 func (d *Database) GetMetrics() (*models.Metrics, error) {
 	metrics := &models.Metrics{}
 

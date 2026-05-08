@@ -182,5 +182,16 @@ func (s *Service) DeleteTunnel(tunnelID string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("xtpro database is not available")
 	}
-	return s.db.DeleteTunnelByAdmin(tunnelID)
+	t, err := s.db.GetTunnelByID(tunnelID)
+	if err != nil {
+		return err
+	}
+	if err := s.db.DeleteTunnelByAdmin(tunnelID); err != nil {
+		return err
+	}
+	// If this tunnel is currently active, kick its session so the public port is released immediately.
+	if s.srv != nil && t != nil && t.ClientID != "" {
+		_ = s.srv.kickClient(t.ClientID)
+	}
+	return nil
 }

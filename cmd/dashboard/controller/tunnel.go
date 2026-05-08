@@ -36,6 +36,10 @@ func tunnelSync(c *gin.Context) (*tunnelSyncResponse, error) {
 	if err := c.ShouldBindJSON(&desired); err != nil {
 		return nil, err
 	}
+	// UI submits the full desired tunnel list. Use replace semantics so that
+	// tunnels/ports removed from the list are closed on the agent, preventing
+	// leaked listeners and wasted public ports.
+	desired.Replace = true
 	payload, err := json.Marshal(desired)
 	if err != nil {
 		return nil, err
